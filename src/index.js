@@ -752,7 +752,13 @@ async function process(input, label, msg = null) {
     // 1b. Focus stack —— 动态上下文记忆池第 3b/3c 步：多帧栈 + 压缩回填
     // 在 runInjector 之后、buildContextBlock 之前更新，让 <focus> / <focus-history> 段拿到最新栈。
     try {
-      const focusResult = updateFocusFrame(state, input, { isTick, tickCounter: state.tickCounter || 0 })
+      const focusResult = await updateFocusFrame(state, input, {
+        isTick,
+        tickCounter: state.tickCounter || 0,
+        // fastUserPath 路径关掉 LLM 仲裁保延迟；栈结构仍走 v0 启发式
+        classifierEnabled: !fastUserPath,
+        signal: controller.signal,
+      })
       const topFrame = state.focusStack && state.focusStack.length > 0
         ? state.focusStack[state.focusStack.length - 1]
         : null
