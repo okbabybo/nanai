@@ -16,6 +16,9 @@
 // 注意：直接从 keywords.js 拿 extractKeywords，绕开 injector.js（避免拉起 SQLite）
 // 这样 focus.js 可以在纯 Node 环境下被单元测试，不需要 better-sqlite3 native binding。
 import { extractKeywords } from './keywords.js'
+// v1 LLM 语义仲裁。仅在 v0 判 pushed/returned 时叫起来。
+// 失败/超时返回 null → 回退 v0 结果。
+import { classifyFocusEvent } from './focus-classifier.js'
 
 // 焦点失活阈值：lastSeenTick 超过这么多 tick 没被命中就 pop 栈顶。
 export const FOCUS_FRAME_STALE_TICKS = 20
@@ -94,15 +97,21 @@ function ensureStack(state) {
 /**
  * 更新 focus stack。直接 mutate state.focusStack。
  *
+ * 第 5b 步起变成 async：v0 判 pushed/returned 时同步等 LLM 仲裁（800ms 硬超时）。
+ * v0 判 created/kept/cleared/noop 走纯 ngram 启发式，零网络延迟。
+ *
  * @param {object} state          — 进程级 state 对象（必须可写）
  * @param {string} message        — 当前 process 拿到的裸消息字符串
  * @param {object} ctx
  * @param {boolean} ctx.isTick    — 当前是不是 TICK 心跳
  * @param {number}  ctx.tickCounter — 当前 tickCounter（用作帧的时间轴）
- * @returns {{
+ * @param {boolean} [ctx.classifierEnabled=true] — 是否启用 v1 LLM 仲裁；fastUserPath 路径关掉
+ * @param {AbortSignal} [ctx.signal] — 上层 abort 信号
+ * @param {function} [ctx.classifierFn] — 注入用 stub（测试用）；默认走 classifyFocusEvent
+ * @returns {Promise<{
  *   event: 'created' | 'kept' | 'pushed' | 'returned' | 'cleared' | 'noop',
  *   poppedFrames: object[]
- * }}
+ * }>}
  *
  * 事件语义：
  *   - created  ：栈空，新建第一帧
@@ -110,12 +119,18 @@ function ensureStack(state) {
  *   - pushed   ：与栈中所有帧都无交集，push 新帧（子主题深化）
  *   - returned ：与栈中某个非栈顶帧有交集，pop 到那一帧（回归主线）
  *   - cleared  ：栈顶 idle 超过 FOCUS_FRAME_STALE_TICKS，pop 栈顶
- *   - noop     ：栈无变化（TICK 心跳、空消息、关键词太少等）
+ *   - noop     ：栈无变化（TICK 心跳、空消息、关键词太少、LLM 改判 leaf 等）
  *
  * poppedFrames：本次操作中被 pop / shift 出栈的帧（栈底先出，栈顶后出），
  *   传给上层做压缩回填。stale clear 也算进去。
  */
-export function updateFocusFrame(state, message, { isTick = false, tickCounter = 0 } = {}) {
+export async function updateFocusFrame(state, message, {
+  isTick = false,
+  tickCounter = 0,
+  classifierEnabled = true,
+  signal,
+  classifierFn,
+} = {}) {
   if (!state) return { event: 'noop', poppedFrames: [] }
   ensureStack(state)
 
@@ -137,13 +152,13 @@ export function updateFocusFrame(state, message, { isTick = false, tickCounter =
     return maybeClearStale(state, tickCounter)
   }
 
-  // 栈空 → 创建第一帧
+  // 栈空 → 创建第一帧（v0 直接采用，不调 LLM）
   if (state.focusStack.length === 0) {
     state.focusStack.push(makeFrame(kws.slice(0, TOPIC_KEYWORDS_LIMIT), tickCounter))
     return { event: 'created', poppedFrames: [] }
   }
 
-  // 已有帧：先看栈顶
+  // 已有帧：先看栈顶（v0 判 kept，直接采用，不调 LLM）
   const top = topOf(state.focusStack)
   if (frameOverlap(top, kws) >= 1) {
     top.lastSeenTick = tickCounter
@@ -151,33 +166,92 @@ export function updateFocusFrame(state, message, { isTick = false, tickCounter =
     return { event: 'kept', poppedFrames: [] }
   }
 
-  // 与栈顶无交集 → 看栈中其他帧（回归判断）。
-  // 从栈顶往栈底找：找到第一个与新关键词有交集的旧帧 = 回归该帧。
-  // 注意：跳过栈顶（i = length - 2 起），栈顶已经检查过了。
+  // —— 到这里 v0 要么判 returned，要么判 pushed —— //
+  // 这两种情况会改变栈结构，叫起 v1 LLM 仲裁 + 重写 topic。
+
+  // v0 启发式找回归帧（returned 候选）
+  let v0ReturnedIndex = -1
   for (let i = state.focusStack.length - 2; i >= 0; i--) {
     if (frameOverlap(state.focusStack[i], kws) >= 1) {
-      // 命中第 i 帧 → pop 到 i（保留 0..i，丢 i+1..length-1）
-      // pop 顺序：从靠近栈底的先 pop 还是栈顶先 pop？这里栈顶先 pop（splice 后保留前缀，
-      // 被截掉的部分按原栈位置顺序传给压缩回填——栈底先出，栈顶后出）
-      const popped = state.focusStack.splice(i + 1)
-      const newTop = state.focusStack[i]
-      newTop.lastSeenTick = tickCounter
-      newTop.hitCount += 1
-      return { event: 'returned', poppedFrames: popped }
+      v0ReturnedIndex = i
+      break
     }
   }
 
-  // 栈中所有帧都无交集 → push 新帧（subtopic 深化）
-  const newFrame = makeFrame(kws.slice(0, TOPIC_KEYWORDS_LIMIT), tickCounter)
+  const v0Event = v0ReturnedIndex >= 0 ? 'returned' : 'pushed'
+  const v0Topic = kws.slice(0, TOPIC_KEYWORDS_LIMIT)
+
+  // 调 v1 仲裁（如果启用）。失败/超时/抛错都回退 v0。
+  let llmResult = null
+  if (classifierEnabled) {
+    const fn = classifierFn || classifyFocusEvent
+    try {
+      llmResult = await fn({
+        newMessage: body,
+        v0Event,
+        v0Topic,
+        currentStack: state.focusStack,
+        signal,
+      })
+    } catch {
+      llmResult = null
+    }
+  }
+
+  // 解析 LLM 结果并决定最终动作
+  const finalAction = llmResult?.action || v0Event
+  const finalTopic = (Array.isArray(llmResult?.topic) && llmResult.topic.length > 0)
+    ? llmResult.topic
+    : v0Topic
+
+  if (finalAction === 'kept') {
+    // LLM 改判为 kept → 跟栈顶深化（即便 v0 没认出来）
+    top.lastSeenTick = tickCounter
+    top.hitCount += 1
+    return { event: 'kept', poppedFrames: [] }
+  }
+
+  if (finalAction === 'leaf') {
+    // LLM 判这是一次性短问 → 不动栈，返回 noop
+    return { event: 'noop', poppedFrames: [] }
+  }
+
+  if (finalAction === 'returned') {
+    // 决定 pop 到哪一层：优先用 LLM 给的深度，否则用 v0
+    let depth = v0ReturnedIndex
+    if (llmResult && llmResult.returnsToDepth >= 0 && llmResult.returnsToDepth < state.focusStack.length) {
+      depth = llmResult.returnsToDepth
+    }
+    if (depth < 0 || depth >= state.focusStack.length - 1) {
+      // 没有有效深度 → 退化为 pushed
+      const newFrame = makeFrame(finalTopic, tickCounter)
+      state.focusStack.push(newFrame)
+      const popped = []
+      while (state.focusStack.length > MAX_FOCUS_DEPTH) {
+        const shifted = state.focusStack.shift()
+        if (shifted) popped.push(shifted)
+      }
+      return { event: 'pushed', poppedFrames: popped }
+    }
+    const popped = state.focusStack.splice(depth + 1)
+    const newTop = state.focusStack[depth]
+    newTop.lastSeenTick = tickCounter
+    newTop.hitCount += 1
+    // LLM 若给了新 topic 且与原 topic 重合，可以扩展旧帧 topic —— 但为了稳健起见
+    // 这里不改旧帧 topic（保留旧帧的语义身份），只更新命中计数和时间戳。
+    return { event: 'returned', poppedFrames: popped }
+  }
+
+  // finalAction === 'pushed'（默认）
+  const newFrame = makeFrame(finalTopic, tickCounter)
   state.focusStack.push(newFrame)
 
-  // 栈深超限 → shift 栈底，把它也送进压缩回填
+  // 栈深超限 → shift 栈底
   const poppedFrames = []
   while (state.focusStack.length > MAX_FOCUS_DEPTH) {
     const shifted = state.focusStack.shift()
     if (shifted) poppedFrames.push(shifted)
   }
-
   return { event: 'pushed', poppedFrames }
 }
 

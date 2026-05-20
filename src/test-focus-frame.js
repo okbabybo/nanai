@@ -7,12 +7,15 @@
 // buildContextBlock 来自 prompt.js，prompt.js 依赖 agents/registry.js（间接接 DB），
 // 因此在测试 prompt 集成时仍需上 test-prompt-split-loader 同款 stub hook。
 //
+// 第 5b 步后 updateFocusFrame 变 async；本测试所有调用统一禁用 classifier（classifierEnabled:false），
+// 让 v0 启发式路径单独跑通，不依赖 LLM。
+//
 // Run: node src/test-focus-frame.js
 import { register } from 'node:module'
 register('./test-prompt-split-loader.mjs', import.meta.url)
 
 import {
-  updateFocusFrame,
+  updateFocusFrame as _updateFocusFrame,
   FOCUS_FRAME_STALE_TICKS,
   MAX_FOCUS_DEPTH,
   describeFocusFrameAge,
@@ -20,6 +23,11 @@ import {
 } from './memory/focus.js'
 import { extractKeywords } from './memory/keywords.js'
 import { buildCompressionInput, __internal as compressInternal } from './memory/focus-compress.js'
+
+// 测试 helper：永远禁用 v1 仲裁，跑纯 v0 启发式路径。
+function updateFocusFrame(state, message, opts = {}) {
+  return _updateFocusFrame(state, message, { ...opts, classifierEnabled: false })
+}
 
 let failed = 0
 function assert(cond, label) {
@@ -58,7 +66,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
 
   // round 1: created
   state.tickCounter = 1
-  const r1 = updateFocusFrame(state, '我想学一下 prompt caching 的原理', {
+  const r1 = await updateFocusFrame(state, '我想学一下 prompt caching 的原理', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -73,7 +81,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
 
   // round 2: kept or switched (heuristic-dependent)
   state.tickCounter = 2
-  const r2 = updateFocusFrame(state, '再说说 prompt 的 prefix cache 怎么命中', {
+  const r2 = await updateFocusFrame(state, '再说说 prompt 的 prefix cache 怎么命中', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -82,7 +90,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
 
   // round 3: 天气 → 完全无交集 → pushed
   state.tickCounter = 3
-  const r3 = updateFocusFrame(state, '今天广州的天气怎么样啊', {
+  const r3 = await updateFocusFrame(state, '今天广州的天气怎么样啊', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -93,7 +101,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
   // round 4: TICK → 不动
   state.tickCounter = 4
   const stackBefore = JSON.stringify(state.focusStack.map(f => f.topic))
-  const r4 = updateFocusFrame(state, 'TICK 2026-05-19-10:30:00', {
+  const r4 = await updateFocusFrame(state, 'TICK 2026-05-19-10:30:00', {
     isTick: true,
     tickCounter: state.tickCounter,
   })
@@ -107,7 +115,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
   const state = makeState()
   state.focusStack = [makeFrame(['caching', 'prompt', 'prefix'])]
   state.tickCounter = 2
-  const r = updateFocusFrame(state, '再说一下 prompt 的工作机制吧', {
+  const r = await updateFocusFrame(state, '再说一下 prompt 的工作机制吧', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -129,7 +137,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
     makeFrame(['weather', 'guangzhou', 'today']),  // 子主题
   ]
   state.tickCounter = 5
-  const r = updateFocusFrame(state, '继续说 prompt 那个 caching design', {
+  const r = await updateFocusFrame(state, '继续说 prompt 那个 caching design', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -150,7 +158,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
     makeFrame(['gamma', 'sidequest']),
   ]
   state.tickCounter = 10
-  const r = updateFocusFrame(state, '回到 alpha mainline project 那个事', {
+  const r = await updateFocusFrame(state, '回到 alpha mainline project 那个事', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -169,7 +177,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
   const state = makeState()
   state.focusStack = [makeFrame(['prompt', 'caching'])]
   state.tickCounter = 5
-  const r = updateFocusFrame(state, '广州今天天气怎么样啊预报呢', {
+  const r = await updateFocusFrame(state, '广州今天天气怎么样啊预报呢', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -188,7 +196,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
   }
   state.tickCounter = MAX_FOCUS_DEPTH + 1
   // 一条与所有现有 topic 都不相交的消息 → 强 push → 栈深超限 → shift 栈底
-  const r = updateFocusFrame(state, '完全无关的新主题 freshunique keywords', {
+  const r = await updateFocusFrame(state, '完全无关的新主题 freshunique keywords', {
     isTick: false,
     tickCounter: state.tickCounter,
   })
@@ -205,7 +213,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
   const staleFrame = makeFrame(['老', '帧', '残留'], { startedAtTick: 1, lastSeenTick: 5, hitCount: 3 })
   state.focusStack = [staleFrame]
   state.tickCounter = 5 + FOCUS_FRAME_STALE_TICKS + 1
-  const r = updateFocusFrame(state, 'TICK 2026-05-19-11:00:00', {
+  const r = await updateFocusFrame(state, 'TICK 2026-05-19-11:00:00', {
     isTick: true,
     tickCounter: state.tickCounter,
   })
@@ -219,7 +227,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
 {
   const state = makeState()
   state.tickCounter = 1
-  const r = updateFocusFrame(state, '好', { isTick: false, tickCounter: 1 })
+  const r = await updateFocusFrame(state, '好', { isTick: false, tickCounter: 1 })
   assert(r.event === 'noop', `very short msg event=${r.event}`)
   assert(state.focusStack.length === 0, 'very short msg does not create frame')
   assert(r.poppedFrames.length === 0, 'very short msg has no pops')
@@ -229,7 +237,7 @@ function makeFrame(topic, { startedAtTick = 1, lastSeenTick = 1, hitCount = 1 } 
 {
   const state = makeState()
   state.tickCounter = 1
-  const r = updateFocusFrame(state, '好的好的', { isTick: false, tickCounter: 1 })
+  const r = await updateFocusFrame(state, '好的好的', { isTick: false, tickCounter: 1 })
   assert(
     (r.event === 'noop' && state.focusStack.length === 0) ||
       (r.event === 'created' && state.focusStack.length === 1),
