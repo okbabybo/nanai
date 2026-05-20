@@ -117,9 +117,12 @@ function cleanConclusion(content) {
  * @param {object} opts
  * @param {string} opts.sessionRef
  * @param {Function} [opts.emitEvent] — 可选事件回调（用于通知 UI / 日志）
+ * @param {Function} [opts.saveStack]  — 可选回调：把 conclusion 挂上栈顶后调用，
+ *                                      让调用方把更新后的 state.focusStack 写回 db（5c 步）。
+ *                                      不传则只改内存，不持久化。
  * @returns {Promise<{ conclusion: string, attempted: boolean } | null>}
  */
-export async function compressPoppedFrame(poppedFrame, currentTopFrame, { sessionRef, emitEvent } = {}) {
+export async function compressPoppedFrame(poppedFrame, currentTopFrame, { sessionRef, emitEvent, saveStack } = {}) {
   if (!poppedFrame) return null
   try {
     // 动态 import：让该模块在 test/纯算法路径下也能被引入而不强拉 db
@@ -173,6 +176,11 @@ export async function compressPoppedFrame(poppedFrame, currentTopFrame, { sessio
       while (currentTopFrame.conclusions.length > 5) {
         currentTopFrame.conclusions.shift()
       }
+      // 5c 步：conclusion 挂上后立刻持久化整栈到 db。
+      // currentTopFrame 是 state.focusStack 末元素的引用——调用方传进来的
+      // saveStack 闭包指向同一份 state.focusStack，所以这里直接调即可。
+      // 任何异常吞掉（saveFocusStack 自带 try/catch + console.warn）。
+      try { saveStack?.() } catch {}
     }
 
     // 沉淀到长期记忆。insertMemory 自带去重，可能 reject —— 吞掉。

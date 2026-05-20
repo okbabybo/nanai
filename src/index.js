@@ -8,7 +8,7 @@ import { compressPoppedFrame } from './memory/focus-compress.js'
 import { runMemoryRefreshLoop } from './memory/refresh-loop.js'
 import { startConsolidationLoop } from './memory/consolidation-loop.js'
 import { gatherContext, formatExtraContext } from './context/gatherer.js'
-import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline } from './db.js'
+import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, saveFocusStack } from './db.js'
 import { calculateNextDueAt, autoSpeakForVoiceReply } from './capabilities/executor.js'
 import { popMessage, hasMessages, hasUserMessages, getQueueSnapshot, setInterruptCallback, requeueMessage, pushMessage } from './queue.js'
 import { startTUI } from './tui.js'
@@ -176,7 +176,7 @@ const state = {
   pendingConfidenceHint: null,  // 上一轮 refresh-loop 的 confidence，供下次 runInjector 调整召回数量后清空
   tickCounter: 0,             // 累计 TICK 计数（每次进 isTick 路径自增）
   lastTaskRefreshTick: -10,   // 上次 TICK 路径触发 refresh-loop 时的 tickCounter；初值 -10 保证首个 TICK 立刻可触发（差值 = 0 - (-10) = 10 >= 5）
-  focusStack: [],             // 动态上下文记忆池第 3b 步：注意力焦点栈（栈底 → 栈顶）；不持久化
+  focusStack: loadFocusStack(),  // 动态上下文记忆池第 3b/5c 步：注意力焦点栈（栈底 → 栈顶），重启从 db 恢复
 }
 
 const TASK_IDLE_TICK_LIMIT = 5  // auto-clear task after N consecutive task ticks with no tool calls
@@ -762,13 +762,23 @@ async function process(input, label, msg = null) {
         event: focusResult?.event || 'noop',
       })
 
+      // 5c 步：持久化焦点栈到 db。noop 路径不写库（DELETE+INSERT 0 行也是无意义 IO）。
+      // 任何 push/pop/touch/refresh 都视为栈状态变化，写一次。better-sqlite3 同步，
+      // 写入 ~ ms 级；失败 saveFocusStack 内部 console.warn 后吞掉。
+      if (focusResult?.event && focusResult.event !== 'noop') {
+        saveFocusStack(state.focusStack || [])
+      }
+
       // 压缩回填：每帧 pop 异步压缩成一句话结论，挂回新栈顶 + 沉淀到长期记忆。
       // fire-and-forget，参考 recognizer.js:196 的双层 catch 模式，绝不能阻塞主对话。
       if (focusResult?.poppedFrames?.length > 0) {
         for (const popped of focusResult.poppedFrames) {
           ;(async () => {
             try {
-              await compressPoppedFrame(popped, topFrame, { sessionRef, emitEvent })
+              // saveStack 回调：compress 把 conclusion push 进 currentTopFrame 后调用，
+              // 把更新后的栈写回 db。focus-compress 不直接依赖 state。
+              const saveStack = () => saveFocusStack(state.focusStack || [])
+              await compressPoppedFrame(popped, topFrame, { sessionRef, emitEvent, saveStack })
             } catch {
               // 压缩失败 → 当作"那帧没沉淀"继续，不打扰用户
             }
@@ -1382,6 +1392,15 @@ async function startConsciousnessLoop({ runImmediateTick = true } = {}) {
 
 async function main() {
   console.log('Jarvis starting...')
+
+  // 5c 步：启动时打印恢复的专注栈，便于"重启不丢栈"的直观验证。
+  if (state.focusStack && state.focusStack.length > 0) {
+    const path = state.focusStack
+      .map(f => Array.isArray(f.topic) ? f.topic.join(',') : '')
+      .filter(Boolean)
+      .join(' > ')
+    console.log(`[focus] 恢复 ${state.focusStack.length} 帧专注栈：${path}`)
+  }
 
   // Sync ACUI skill memories (compare AGENT_GUIDE.md hash, update skill-ui-* entries as needed)
   ensureSkillMemories()

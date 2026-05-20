@@ -362,6 +362,28 @@ function initSchema() {
     console.warn('[DB migration] canonical user migration failed:', err.message)
   }
 
+  // focus_stack 表：动态上下文记忆池第 5c 步——持久化注意力焦点栈，让重启不丢栈。
+  //   depth         : 栈深，主键。0=栈底，length-1=栈顶。
+  //   topic         : JSON array of strings（主题关键词）。
+  //   started_at    : 帧创建时间（ISO timestamp）。
+  //   started_at_tick / last_seen_tick : 创建/最后命中的 tickCounter。
+  //   hit_count     : 累计命中次数。
+  //   conclusions   : JSON array，存放从被 pop 子帧回填的结论字符串。
+  //   updated_at    : 行写入时间。
+  // 写入策略：每次 saveFocusStack 都先 DELETE 全表再批量 INSERT，整栈原子替换。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS focus_stack (
+      depth         INTEGER PRIMARY KEY,
+      topic         TEXT    NOT NULL,
+      started_at    TEXT    NOT NULL,
+      started_at_tick INTEGER NOT NULL,
+      last_seen_tick INTEGER NOT NULL,
+      hit_count     INTEGER NOT NULL DEFAULT 1,
+      conclusions   TEXT    NOT NULL DEFAULT '[]',
+      updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    );
+  `)
+
   // 重建 FTS 索引（覆盖已有数据，确保历史记忆也被索引）
   db.exec(`INSERT INTO memories_fts(memories_fts) VALUES('rebuild')`)
 }
@@ -1711,4 +1733,61 @@ export function updateMusicLrc(id, lrc) {
 
 export function deleteMusicTrack(id) {
   getDB().prepare(`DELETE FROM music_library WHERE id = ?`).run(id)
+}
+
+// ============================================================
+// focus_stack —— 动态上下文记忆池 5c 步：注意力焦点栈持久化
+// ============================================================
+//
+// loadFocusStack: 启动时一次性读出整栈（按 depth ASC）；任何异常都返回 []，
+//   不阻塞主流程。frame 形状与内存中的 state.focusStack[i] 完全一致：
+//   { topic, startedAt, startedAtTick, lastSeenTick, hitCount, conclusions }
+//
+// saveFocusStack: 整栈原子替换。先 DELETE 再 INSERT，全部包在 transaction 里。
+//   focus.js 只在内存里改 state.focusStack，所以 index.js 在每次 updateFocusFrame
+//   返回非 noop 时主动调；focus-compress.js 也通过 onConclusionAttached 回调触发。
+//   写库失败 console.warn 后吞掉——专注栈丢一次远比阻塞主对话轻。
+export function loadFocusStack() {
+  const db = getDB()
+  try {
+    const rows = db.prepare(`SELECT * FROM focus_stack ORDER BY depth ASC`).all()
+    return rows.map(r => ({
+      topic: JSON.parse(r.topic || '[]'),
+      startedAt: r.started_at,
+      startedAtTick: r.started_at_tick,
+      lastSeenTick: r.last_seen_tick,
+      hitCount: r.hit_count,
+      conclusions: JSON.parse(r.conclusions || '[]'),
+    }))
+  } catch {
+    return []
+  }
+}
+
+export function saveFocusStack(stack) {
+  const db = getDB()
+  try {
+    const tx = db.transaction((frames) => {
+      db.prepare(`DELETE FROM focus_stack`).run()
+      const insert = db.prepare(`
+        INSERT INTO focus_stack (depth, topic, started_at, started_at_tick, last_seen_tick, hit_count, conclusions)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+      for (let i = 0; i < frames.length; i++) {
+        const f = frames[i]
+        insert.run(
+          i,
+          JSON.stringify(f.topic || []),
+          f.startedAt || new Date().toISOString(),
+          f.startedAtTick || 0,
+          f.lastSeenTick || 0,
+          f.hitCount || 1,
+          JSON.stringify(f.conclusions || [])
+        )
+      }
+    })
+    tx(stack || [])
+  } catch (err) {
+    console.warn('[focus-persist] saveFocusStack failed:', err.message)
+  }
 }
