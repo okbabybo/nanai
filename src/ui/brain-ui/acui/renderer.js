@@ -65,6 +65,8 @@ export async function reloadRegistry() {
 
 export function mount(msg) {
   if (!notificationHost) return
+  if (msg.mode === 'inline-template') return mountInlineTemplate(msg)
+  if (msg.mode === 'inline-script') return mountInlineScript(msg)
   return mountRegistered(msg)
 }
 
@@ -80,6 +82,60 @@ function mountRegistered({ id, component, props, hint }) {
   attachLifecycle(el, id, component, hint)
   el.props = props
   appendAndAnimate(el, id, component, hint)
+}
+
+// ── 模式 B：内联模板 ──────────────────────────────────────────
+function mountInlineTemplate({ id, mode, template, styles, props, hint }) {
+  const el = document.createElement('div')
+  attachLifecycle(el, id, mode, hint)
+  el.className = 'acui-inline-template'
+  renderInlineTemplate(el, template, styles, props || {})
+  appendAndAnimate(el, id, mode, hint)
+  const inst = instances.get(id)
+  if (inst) Object.assign(inst, { mode, template, styles, props: props || {} })
+}
+
+function renderInlineTemplate(el, template, styles, props) {
+  const html = String(template || '').replace(/\$\{([^}]+)\}/g, (_, key) => {
+    const value = props?.[String(key).trim()]
+    if (Array.isArray(value)) return value.join('')
+    return value ?? ''
+  })
+  const styleTag = styles ? `<style>${styles}</style>` : ''
+  el.innerHTML = `${styleTag}${html}`
+}
+
+// ── 模式 C：内联组件 ──────────────────────────────────────────
+async function mountInlineScript({ id, mode, code, props, hint }) {
+  try {
+    const blob = new Blob([code], { type: 'text/javascript' })
+    const url = URL.createObjectURL(blob)
+    let mod
+    try {
+      mod = await import(url)
+    } finally {
+      URL.revokeObjectURL(url)
+    }
+
+    const Cls = mod.default
+    if (typeof Cls !== 'function' || !(Cls.prototype instanceof HTMLElement)) {
+      signalSink?.({ type: 'card.error', target: id, payload: { phase: 'mount', message: 'invalid_inline_component' } })
+      return
+    }
+
+    const tagName = `acui-inline-${String(id).replace(/[^a-z0-9-]/gi, '-').toLowerCase()}`
+    if (!customElements.get(tagName)) customElements.define(tagName, Cls)
+
+    const el = document.createElement(tagName)
+    attachLifecycle(el, id, mode, hint)
+    el.props = props || {}
+    appendAndAnimate(el, id, mode, hint)
+    const inst = instances.get(id)
+    if (inst) Object.assign(inst, { mode, code, props: props || {} })
+  } catch (e) {
+    console.warn('[ACUI] inline-script mount failed:', e)
+    signalSink?.({ type: 'card.error', target: id, payload: { phase: 'mount', message: e.message } })
+  }
 }
 
 // ── 公共：生命周期 + 入场 ─────────────────────────────────────
@@ -237,6 +293,11 @@ export function patch({ id, patchOp, data }) {
 export function update({ id, props }) {
   const inst = instances.get(id)
   if (!inst) return
+  if (inst.mode === 'inline-template') {
+    inst.props = { ...(inst.props || {}), ...props }
+    renderInlineTemplate(inst.el, inst.template, inst.styles, inst.props)
+    return
+  }
   inst.el.props = { ...(inst.el.props || {}), ...props }
 }
 

@@ -33,28 +33,34 @@
 - Memory 工具域拆分：
   - `src/capabilities/tools/memory.js`
   - 包含 `search_memory`、`upsert_memory`、`merge_memories`、`recall_memory`、`downgrade_memory`、`skip_consolidation`、`skip_recognition`
-  - 已迁移记忆参数 JSON 兼容解析、识别器/记忆写入辅助逻辑、`memory_consolidated` 事件和相关 `db.js` 记忆函数 import
 - Reminders 工具域拆分：
   - `src/capabilities/tools/reminders.js`
-  - 包含 `schedule_reminder` / `manage_reminder` 共用执行入口、一次性提醒创建/合并/取消/查询逻辑、周期提醒时间解析与下一次触发时间计算、提醒目标用户解析、`buildSystemMessage` helper、`reminder_created` / `reminder_merged` / `reminder_cancelled` 事件和相关 `db.js` import
+  - 包含 `schedule_reminder` / `manage_reminder`、一次性提醒创建/合并/取消/查询、周期提醒时间解析与 `calculateNextDueAt`、提醒目标用户解析、`buildSystemMessage` helper、提醒相关事件和 `db.js` import
   - `executor.js` 继续 re-export `calculateNextDueAt`，保持 `src/index.js` 兼容
+- Media 工具域拆分：
+  - `src/capabilities/tools/media.js`
+  - 包含 `speak`、`generate_lyrics`、`generate_music`、`generate_image`、`music`、`media_mode`
+  - 包含 TTS/歌词/音乐/图片文件落盘逻辑、媒体库相关 `db.js` import、`isDailyLimitReached` 配额逻辑、`getTTSCredentials` / `streamTTS` TTS import
+  - 继续保持 `audio_created`、`tts_reply`、`lyrics_created`、`music_created`、`image_created` 等事件名不变
+  - `executor.js` 继续 re-export `autoSpeakForVoiceReply`
 - 出站回复体验小修：
-  - `send_message` 写库/广播前对相邻重复短行做去重，避免同一条消息里出现“已取消 #1。\n已取消 #1。”
+  - `send_message` 写库/广播前对相邻重复短行去重，避免同一条消息里重复两遍相同内容
 - `src/capabilities/executor.js` 继续保留工具调度门面和对外入口：
   - `executeTool`
   - `autoSpeakForVoiceReply`
   - `persistAppState`
-- 当前版本：`2.1.189`
+- 当前版本：`2.1.190`
 - 已 build 并验证安装包：
-  - `dist/Bailongma-Setup-2.1.189.exe`
+  - `dist/Bailongma-Setup-2.1.190.exe`
 - 最新推送：
-  - commit `c27072e`
+  - commit `89bbaea`
   - branch `origin/refactor/module-split`
 
 ## 已验证
 
 - `git diff --check`
 - `node --check src/capabilities/executor.js`
+- `node --check src/capabilities/tools/media.js`
 - `node --check src/capabilities/tools/reminders.js`
 - `node --check src/index.js`
 - `npm run smoke:tools`：6/6 passed
@@ -63,38 +69,41 @@
   - `executeTool('manage_reminder', { action: 'noop' })`
   - `executeTool('schedule_reminder', {})`
   - 未创建真实提醒
+- media 最小工具调用验证：
+  - `executeTool('speak', {})`
+  - `executeTool('generate_lyrics', {})`
+  - `executeTool('generate_music', {})`
+  - `executeTool('generate_image', {})`
+  - `executeTool('music', { action: 'search' })`
+  - `executeTool('media_mode', { mode: 'bad' })`
+  - 均走错误/只读路径，未消耗真实配额，未写媒体库
 - 安装版真实对话链路验证：
-  - `/message` 创建测试提醒成功
-  - DB 中测试提醒状态从 `pending` 变为 `cancelled`
-  - 测试提醒已清理，无 pending 污染
-- 出站去重验证：
-  - 真实 `/message` 要求回复两行相同 token
-  - conversations 最终只写入一行
+  - `/message` 发测试消息成功
+  - conversations 中收到回复：`在线，media 模块拆分验证已就绪，可以随时测试。`
 - 标准 build 脚本成功，packaged/installed `better-sqlite3` 均为 Electron ABI 130
-- 安装版 `/status` HTTP 200
+- 安装版 `/status` HTTP 200，返回 `{"ok":true,"memory_count":45,"running":true}`
 - 安装版 `/brain-ui` Playwright 打开成功，主 UI 渲染正常
 
 ## 已知非回归
 
-- 本地 Node CLI 中 `better-sqlite3` 可能因为 Electron ABI 130 与 Node ABI 127 不一致，导致涉及数据库写入的 Node CLI 脚本打印 audit 持久化警告；不要把这个当成本次重构回归。Electron 安装版已验证可启动并返回 `/status` 200。
+- 本地 Node CLI 中 `better-sqlite3` 可能因为 Electron ABI 130 与 Node ABI 127 不一致，导致涉及数据库写入的 Node CLI 脚本打印 audit 持久化警告；不要把这当成本次重构回归。Electron 安装版已验证可启动并返回 `/status` 200。
 - `brain.html` / `dashboard.html` 路由会 404，因为项目根目录本来没有对应文件；这不是本轮拆分导致的问题。
-- Windows PowerShell 直接构造中文 JSON POST 时可能出现编码乱码；使用 UTF-8 bytes 或 ASCII 可避免。这不是 reminders 拆分导致的问题。
+- Windows PowerShell 直接构造中文 JSON POST 时可能出现编码乱码；使用 UTF-8 bytes 或 ASCII 可避免。这不是模块拆分导致的问题。
 
 ## 剩余重构对象
 
 ### 1. `src/capabilities/executor.js`
 
-当前状态：已拆出基础 helper、文件工具域、shell 工具域、web 工具域、memory 工具域、reminders 工具域；`executor.js` 仍保留工具调度入口和大量其他工具实现。
+当前状态：已拆出基础 helper、filesystem、shell、web、memory、reminders、media 工具域；`executor.js` 仍保留工具调度入口和其他工具实现。
 
 剩余建议拆分顺序：
 
-- `src/capabilities/tools/media.js`：`speak`、`generate_lyrics`、`generate_music`、`music`、`generate_image`
 - `src/capabilities/tools/ui.js`：`ui_show`、`ui_update`、`ui_hide`、`ui_patch`、`manage_app`、`ui_register`、ACUI/组件草稿相关逻辑
 - `src/capabilities/tools/system.js`：`set_tick_interval`、`set_task`、`complete_task`、`update_task_step`、`set_security`、`set_agent_name`、`set_location`、启动自检等
 - `src/capabilities/tools/delegation.js`：agent 委托相关工具
 - 后续可考虑 `src/capabilities/tool-registry.js`，把工具名到 handler 的 switch/注册表进一步拆出
 
-下一步建议：优先拆 `media.js`。它体量较大但边界相对集中，涉及 TTS、歌词、音乐、图片、媒体库 DB 函数、配额、文件落盘和若干事件。必须保持工具名、参数、返回文本/JSON shape、错误文案、事件名和配额行为不变。
+下一步建议：优先拆 `ui.js`。它体量较大但边界清晰，涉及 ACUI 组件注册、UI 卡片 show/update/hide/patch、应用草稿与 `persistAppState` 的兼容入口。必须保持工具名、参数、返回 JSON/text shape、错误文案、事件名和 UI 行为不变。
 
 ### 2. `src/api.js`
 
@@ -176,7 +185,7 @@
 
 - executor 工具域改动：至少跑 `node --check` 和 `npm run smoke:tools`。
 - web 工具域改动：额外做 `fetch_url` / `browser_read` / `web_search` 的最小工具链路验证，避免依赖不稳定外网作为唯一判断。
-- media 工具域改动：至少跑相关 `node --check`、`npm run smoke:tools`；尽量做不会消耗真实配额或污染媒体库的错误/只读路径验证。如果必须写入，说明原因并清理测试文件/记录。
+- media 工具域改动：至少跑相关 `node --check`、`npm run smoke:tools`；尽量做不会消耗真实配额或污染媒体库的错误/只读路径验证。如必须写入，说明原因并清理测试文件/记录。
 - brain UI 改动：跑 `npm run smoke:brain-ui`。
 - 社交/微信/外部渠道改动：跑 `npm run smoke:social`，但注意本地 Node CLI ABI mismatch 的已知限制。
 - build/启动路径改动：跑标准 BaiLongma build 脚本并验证安装版 `/status`。

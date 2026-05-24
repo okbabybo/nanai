@@ -335,6 +335,75 @@ function trimAssistantFluff(content) {
   return text
 }
 
+function compactReplyLine(line) {
+  return String(line || '')
+    .trim()
+    .replace(/^[`'"“”‘’]+|[`'"“”‘’。.!！?？,，:：;；\s]+$/g, '')
+    .replace(/\s+/g, ' ')
+}
+
+function normalizePathEcho(line) {
+  return compactReplyLine(line)
+    .replace(/`/g, '')
+    .replace(/[\\\/]+/g, '/')
+    .toLowerCase()
+}
+
+function lineFingerprint(line) {
+  return compactReplyLine(line)
+    .replace(/[`'"“”‘’。.!！?？,，:：;；、\s]/g, '')
+    .toLowerCase()
+}
+
+function charSimilarity(a, b) {
+  const left = new Set([...lineFingerprint(a)])
+  const right = new Set([...lineFingerprint(b)])
+  if (!left.size || !right.size) return 0
+  let overlap = 0
+  for (const ch of left) if (right.has(ch)) overlap++
+  return overlap / Math.max(left.size, right.size)
+}
+
+function isPathOnlyLine(line) {
+  const normalized = normalizePathEcho(line)
+  return /^[a-z]:\/[^<>|?*\r\n]+$/i.test(normalized) || /^\/[^<>|?*\r\n]+$/.test(normalized)
+}
+
+function dedupeReplyLines(content) {
+  const lines = String(content || '').split(/\r?\n/)
+  const result = []
+  let previousCompact = ''
+
+  for (const line of lines) {
+    const compact = compactReplyLine(line)
+    if (!compact) {
+      result.push(line)
+      continue
+    }
+
+    const previousLine = result.length ? result[result.length - 1] : ''
+    const previousPath = normalizePathEcho(previousLine)
+    const currentPath = normalizePathEcho(line)
+
+    if (compact === previousCompact) continue
+
+    if (isPathOnlyLine(previousLine) && currentPath.includes(previousPath) && currentPath.length > previousPath.length) {
+      result[result.length - 1] = line
+      previousCompact = compact
+      continue
+    }
+
+    if (previousCompact && compact.length <= 180 && previousCompact.length <= 180 && charSimilarity(previousLine, line) >= 0.78) {
+      continue
+    }
+
+    result.push(line)
+    previousCompact = compact
+  }
+
+  return result.join('\n').trim()
+}
+
 function requiresToolForUserMessage(text = '') {
   const input = String(text || '')
   const fileIntent = /(sandbox|文件|目录|创建|新建|写入|读取|删除|列出|保存|test-\d+|\.txt|\.json|\.md|\.js|\.html|\.css)/i.test(input)
@@ -1213,7 +1282,7 @@ async function runTurn(input, label, msg = null) {
   // 参见 lessons-bailongma-silent-exit。
   const lastToolCall = toolCallLog[toolCallLog.length - 1]
   if (msg && msg.fromId && lastToolCall?.name !== 'send_message') {
-    const fallbackContent = trimAssistantFluff(
+    const fallbackContent = dedupeReplyLines(trimAssistantFluff(
       response
         .replace(/<think>[\s\S]*?<\/think>/gi, '')
         .replace(/\[RECALL:\s*.+?\]/g, '')
@@ -1221,7 +1290,7 @@ async function runTurn(input, label, msg = null) {
         .replace(/\[CLEAR_TASK\]/g, '')
         .replace(/\[UPDATE_PERSONA:\s*[\s\S]+?\]/g, '')
         .trim()
-    )
+    ))
 
     if (fallbackContent && requiresToolForUserMessage(input) && !hasNonMessageToolCall(toolCallLog)) {
       const timestamp = nowTimestamp()

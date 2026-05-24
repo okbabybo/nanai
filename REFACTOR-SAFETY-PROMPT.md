@@ -60,7 +60,7 @@
 ```text
 请在 BaiLongma 的 `refactor/module-split` 分支上执行一次小步安全重构。
 
-本次目标：[填写一个非常具体的目标，例如：从 `src/capabilities/executor.js` 抽出 media 工具域到 `src/capabilities/tools/media.js`]
+本次目标：[填写一个非常具体的目标，例如：从 `src/capabilities/executor.js` 抽出 UI 工具域到 `src/capabilities/tools/ui.js`]
 
 边界：
 - 只搬迁/整理该目标相关代码。
@@ -91,51 +91,47 @@
 
 当前状态：
 - 已完成基础 helper 拆分：`tool-policy.js`、`tool-audit.js`、`tool-utils.js`、`abort-utils.js`、`sandbox.js`。
-- 已完成文件工具域拆分：`src/capabilities/tools/filesystem.js`。
+- 已完成 filesystem 工具域拆分：`src/capabilities/tools/filesystem.js`。
 - 已完成 shell 工具域拆分：`src/capabilities/tools/shell.js`。
 - 已完成 web 工具域拆分：`src/capabilities/tools/web.js`。
 - 已完成 memory 工具域拆分：`src/capabilities/tools/memory.js`。
-- 已完成 reminders 工具域拆分：`src/capabilities/tools/reminders.js`，包含 `schedule_reminder` / `manage_reminder`、一次性提醒创建/合并/取消/查询、周期提醒时间解析与 `calculateNextDueAt`、提醒目标用户解析、`buildSystemMessage` helper、提醒相关事件和 `db.js` import。
-- `src/capabilities/executor.js` 仍保留对外入口 `executeTool`、`autoSpeakForVoiceReply`、`persistAppState`，并继续作为工具调度门面。
-- `executor.js` 继续 re-export `calculateNextDueAt`，保持 `src/index.js` 兼容。
-- 出站 `send_message` 已加入相邻重复短行去重，避免同一条回复里重复两遍相同内容。
-- 版本已升到 `2.1.189`，安装包 `dist/Bailongma-Setup-2.1.189.exe` 已验证。
-- 最新推送 commit：`c27072e`，分支：`origin/refactor/module-split`。
+- 已完成 reminders 工具域拆分：`src/capabilities/tools/reminders.js`，并保持 `executor.js` re-export `calculateNextDueAt`。
+- 已完成 media 工具域拆分：`src/capabilities/tools/media.js`，包含 `speak`、`generate_lyrics`、`generate_music`、`generate_image`、`music`、`media_mode`、TTS/歌词/音乐/图片落盘、媒体库 DB import、配额逻辑、TTS import 和相关事件。
+- `src/capabilities/executor.js` 仍保留 `executeTool`、`persistAppState`，并继续作为工具调度门面。
+- `executor.js` 继续 re-export `autoSpeakForVoiceReply` 和 `calculateNextDueAt`，保持外部兼容。
+- 版本已升到 `2.1.190`，安装包 `dist/Bailongma-Setup-2.1.190.exe` 已验证。
+- 最新推送 commit：`89bbaea`，分支：`origin/refactor/module-split`。
 
 已验证：
 - `node --check src/capabilities/executor.js`
-- `node --check src/capabilities/tools/reminders.js`
-- `node --check src/index.js`
+- `node --check src/capabilities/tools/media.js`
 - `npm run smoke:tools`：6/6 passed
-- `npm run smoke:brain-ui`：passed
-- reminders 真实对话链路：创建测试提醒成功，随后取消并清理，DB 状态正确。
-- 出站去重真实对话链路：要求回复两行相同 token，最终 conversations 只写入一行。
+- media 最小错误/只读路径验证通过，未消耗真实配额，未写媒体库。
 - 标准 build 脚本成功，packaged/installed `better-sqlite3` 均为 Electron ABI 130。
-- 安装版 `/status` HTTP 200，`/brain-ui` Playwright 打开并渲染正常。
+- 安装版 `/status` HTTP 200。
+- 安装版真实对话链路验证通过：`/message` 发测试消息后，Friday 回复“在线，media 模块拆分验证已就绪，可以随时测试。”
 
 已知非回归：
 - 本地 Node CLI 中 `better-sqlite3` ABI 130/127 mismatch 是已知非回归，可能导致 audit 持久化警告；不要当成本次重构问题。
-- `brain.html` / `dashboard.html` 404 是既有状态，因为项目根目录本来没有对应文件。
-- PowerShell 直接构造中文 JSON POST 可能乱码；使用 UTF-8 bytes 或 ASCII 可避免。
+- Windows PowerShell 直接构造中文 JSON POST 可能乱码；使用 UTF-8 bytes 或 ASCII 可避免。
 
 本次任务：
-继续拆 `src/capabilities/executor.js`，优先把 media 工具域拆到 `src/capabilities/tools/media.js`。
+继续拆 `src/capabilities/executor.js`，优先把 UI / ACUI 工具域拆到 `src/capabilities/tools/ui.js`。
 
 建议包含：
-- `speak`
-- `generate_lyrics`
-- `generate_music`
-- `generate_image`
-- `music`
-- TTS/歌词/音乐/图片文件落盘逻辑
-- 媒体库相关 `db.js` import：`upsertMusicTrack`、`getMusicTrack`、`searchMusicLibrary`、`listMusicLibrary`、`updateMusicLrc`、`deleteMusicTrack as dbDeleteMusicTrack`
-- 配额相关逻辑：`isDailyLimitReached`
-- TTS 相关 import：`getTTSCredentials`、`streamTTS`
-- 媒体相关事件保持不变，例如 `audio_created`、`tts_reply`、`lyrics_created`、`music_created`、`image_created`
+- `ui_show`
+- `ui_update`
+- `ui_hide`
+- `ui_patch`
+- `manage_app`
+- `ui_register`
+- ACUI 组件注册/校验/缓存逻辑
+- UI 卡片 active state 相关 import 和事件
+- app 草稿相关逻辑需要谨慎处理：`persistAppState` 必须继续保留 executor 对外入口兼容；如迁移 `draftCodeMap` / `appIdToName` 会影响兼容或形成循环依赖，先停下说明。
 
 硬约束：
 - 只做结构拆分，不改行为。
-- 不改变工具名、参数、返回 JSON/text shape、错误文案、安全策略、事件名。
+- 不改变工具名、参数、返回 JSON/text shape、错误文案、安全策略、事件名、UI 行为。
 - 保留 `executor.js` 对外入口兼容。
 - 开始前先运行 `git status --short --branch`。
 - 如果遇到循环依赖或必须改变行为才能继续，停止并说明，不要硬拆。
@@ -143,10 +139,7 @@
 验证：
 - 先跑相关 `node --check`。
 - 必须跑 `npm run smoke:tools`。
-- 建议手动用 `executeTool` 做 media 工具最小验证，优先选择不会消耗真实配额或污染媒体库的错误/只读路径，例如：
-  - `executeTool('speak', {})` 期望返回缺少文本的原错误文案。
-  - `executeTool('music', { action: 'list', limit: 1 })` 或等价只读路径。
-  - `executeTool('generate_image', {})` 期望返回缺少 prompt 的原错误文案。
-- 如果必须写入文件或媒体库，说明原因并清理测试文件/记录。
+- 建议手动用 `executeTool` 做 UI 工具最小验证，优先选择错误路径或不会污染 UI 状态的路径。
+- 如果涉及 ACUI/brain-ui 渲染路径，跑 `npm run smoke:brain-ui`。
 - 如果涉及打包/启动路径，再跑标准 build 并验证安装版 `/status`。
 ```
