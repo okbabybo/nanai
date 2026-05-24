@@ -38,10 +38,11 @@ const PROVIDER_RULES = [
   // TTS
   {
     re: /doubao|豆包|方舟|ark[\s_\-]?api|volcengine.*tts|tts.*volcengine/,
+    skip: /asr|识别/,
     service: 'tts', provider: 'doubao', label: '豆包 TTS',
     makeConfig: (key) => ({
-      configUpdates: { ttsProvider: 'doubao', doubaoKey: key },
-      streamKeys: { doubaoKey: key },
+      configUpdates: { ttsProvider: 'doubao', doubaoKey: key, doubaoResourceId: 'seed-tts-2.0' },
+      streamKeys: { doubaoKey: key, doubaoResourceId: 'seed-tts-2.0' },
     }),
   },
   {
@@ -71,6 +72,7 @@ const PROVIDER_RULES = [
   },
   {
     re: /volcano.*tts|tts.*volcano|火山.*(?:合成|语音)|(?:合成|语音).*火山/,
+    skip: /asr|识别/,
     service: 'tts', provider: 'volcano', label: '火山引擎 TTS',
     makeConfig: (key, key2) => ({
       configUpdates: { ttsProvider: 'volcano', volcanoToken: key, ...(key2 ? { volcanoAppId: key2 } : {}) },
@@ -81,19 +83,32 @@ const PROVIDER_RULES = [
   {
     re: /aliyun|阿里云|百炼|dashscope|paraformer/,
     service: 'asr', provider: 'aliyun', label: '阿里云 ASR',
-    makeConfig: (key) => ({ configUpdates: { aliyunApiKey: key } }),
+    makeConfig: (key) => ({ configUpdates: { voiceProvider: 'aliyun', aliyunApiKey: key } }),
   },
   {
     re: /tencent|腾讯.*(?:asr|识别)|(?:asr|识别).*腾讯|secret[\s_\-]?id/,
     service: 'asr', provider: 'tencent', label: '腾讯云 ASR',
     makeConfig: (key, key2) => ({
-      configUpdates: { tencentSecretId: key, ...(key2 ? { tencentSecretKey: key2 } : {}) },
+      configUpdates: { voiceProvider: 'tencent', tencentSecretId: key, ...(key2 ? { tencentSecretKey: key2 } : {}) },
     }),
   },
   {
     re: /xunfei|讯飞|iflytek/,
     service: 'asr', provider: 'xunfei', label: '讯飞 ASR',
-    makeConfig: (key) => ({ configUpdates: { xunfeiApiKey: key } }),
+    makeConfig: (key, key2) => ({
+      configUpdates: { voiceProvider: 'xunfei', xunfeiAppId: key, ...(key2 ? { xunfeiApiKey: key2 } : {}) },
+    }),
+  },
+  {
+    re: /volcengine.*(?:asr|识别)|(?:asr|识别).*volcengine|火山.*(?:asr|识别)|(?:asr|识别).*火山|豆包.*(?:asr|识别)|(?:asr|识别).*豆包/,
+    service: 'asr', provider: 'volcengine', label: '火山豆包 ASR',
+    makeConfig: (key) => ({
+      configUpdates: {
+        voiceProvider: 'volcengine',
+        volcAsrApiKey: key,
+        volcAsrResourceId: 'volc.bigasr.sauc.duration',
+      },
+    }),
   },
 ]
 
@@ -126,10 +141,10 @@ export function detectAllKeyInfos(currentText) {
     const keyIdx = allKeys.indexOf(nearestKey)
     usedKeyIndices.add(keyIdx)
 
-    // 对于需要两个 key 的（腾讯、火山），取下一个未用 key
+    // 对于需要两个 key 的（腾讯、火山、讯飞），取下一个未用 key
     const nextKey = allKeys.filter((k, i) => !usedKeyIndices.has(i) && k.index > nearestKey.index)[0]
     const nextKeyIdx = nextKey ? allKeys.indexOf(nextKey) : -1
-    const needsSecond = rule.provider === 'tencent' || rule.provider === 'volcano'
+    const needsSecond = rule.provider === 'tencent' || rule.provider === 'volcano' || rule.provider === 'xunfei'
     if (needsSecond && nextKey) usedKeyIndices.add(nextKeyIdx)
 
     const config = rule.makeConfig(nearestKey.key, needsSecond && nextKey ? nextKey.key : undefined)
@@ -164,8 +179,45 @@ export function detectAllKeyInfos(currentText) {
     }
   }
 
+  // 宽泛 ASR 上下文：当前消息说的是语音识别，但没点名服务商
+  if (results.length === 0 && /语音识别|识别语音|asr|听写|转文字|speech[\s_\-]?to[\s_\-]?text/.test(t)) {
+    const currentKeys = extractCandidateKeys(currentText)
+    if (currentKeys.length === 0) return []
+    const key = currentKeys[0].key
+    if (/^sk-[A-Za-z0-9_\-.]{20,}$/.test(key)) {
+      results.push({
+        service: 'asr', provider: 'aliyun', label: '阿里云 ASR',
+        configUpdates: { voiceProvider: 'aliyun', aliyunApiKey: key },
+      })
+    } else if (key.startsWith('AKID')) {
+      results.push({
+        service: 'asr', provider: 'tencent', label: '腾讯云 ASR',
+        configUpdates: { voiceProvider: 'tencent', tencentSecretId: key },
+      })
+    } else if (/^\d{6,10}$/.test(key)) {
+      const next = currentKeys[1]?.key
+      results.push({
+        service: 'asr', provider: 'xunfei', label: '讯飞 ASR',
+        configUpdates: { voiceProvider: 'xunfei', xunfeiAppId: key, ...(next ? { xunfeiApiKey: next } : {}) },
+      })
+    } else if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)) {
+      results.push({
+        service: 'asr', provider: 'volcengine', label: '火山豆包 ASR',
+        configUpdates: {
+          voiceProvider: 'volcengine',
+          volcAsrApiKey: key,
+          volcAsrResourceId: 'volc.bigasr.sauc.duration',
+        },
+      })
+    }
+  }
+
   // 宽泛语音上下文（当前消息有"配置语音/tts/合成"但无具体服务商）
-  if (results.length === 0 && /配置语音|语音配置|语音合成|设置语音|tts[\s_\-]?key|语音.*key|key.*语音/.test(t)) {
+  if (
+    results.length === 0 &&
+    /配置语音|语音配置|语音合成|设置语音|tts[\s_\-]?key|语音.*key|key.*语音/.test(t) &&
+    !/语音识别|识别语音|asr|听写|转文字|speech[\s_\-]?to[\s_\-]?text/.test(t)
+  ) {
     const currentKeys = extractCandidateKeys(currentText)
     if (currentKeys.length === 0) return []
     const key = currentKeys[0].key

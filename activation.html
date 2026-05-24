@@ -500,9 +500,16 @@
     // Returns { id, label, fields: [{id, label, placeholder, type}] } or null
     function detectSTTProvider(key) {
       if (!key) return null
+      if (/^sk-[A-Za-z0-9_\-.]{20,}$/.test(key)) return {
+        id: 'aliyun', label: '阿里云 ASR',
+        primaryField: 'aliyunApiKey',
+        defaults: { voiceProvider: 'aliyun' },
+        extra: []
+      }
       if (/^AKID/i.test(key)) return {
         id: 'tencent', label: '腾讯云 ASR',
         primaryField: 'tencentSecretId',
+        defaults: { voiceProvider: 'tencent' },
         extra: [
           { id: 'stt-tencent-skey', label: 'SecretKey', placeholder: '腾讯云 SecretKey', configKey: 'tencentSecretKey' },
           { id: 'stt-tencent-appid', label: 'AppId', placeholder: '腾讯云 AppId（数字）', configKey: 'tencentAppId' },
@@ -511,13 +518,18 @@
       if (/^\d{6,10}$/.test(key)) return {
         id: 'xunfei', label: '科大讯飞',
         primaryField: 'xunfeiAppId',
+        defaults: { voiceProvider: 'xunfei' },
         extra: [
           { id: 'stt-xunfei-apikey', label: 'ApiKey', placeholder: '讯飞 ApiKey', configKey: 'xunfeiApiKey' },
           { id: 'stt-xunfei-apisecret', label: 'ApiSecret', placeholder: '讯飞 ApiSecret', configKey: 'xunfeiApiSecret' },
         ]
       }
-      // DashScope/阿里云百炼 API Key 与很多 LLM key 都是 sk-*，无法仅凭格式可靠区分。
-      // 不做长度兜底，避免把 DeepSeek/OpenAI 等主模型 key 误保存到 voice.aliyunApiKey。
+      if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(key)) return {
+        id: 'volcengine', label: '火山豆包 ASR',
+        primaryField: 'volcAsrApiKey',
+        defaults: { voiceProvider: 'volcengine', volcAsrResourceId: 'volc.bigasr.sauc.duration' },
+        extra: []
+      }
       return null
     }
 
@@ -548,9 +560,8 @@
         id: 'doubao', label: '豆包 TTS',
         primaryField: 'doubaoKey',
         ttsProvider: 'doubao',
-        extra: [
-          { id: 'tts-doubao-appid', label: 'AppId（可选）', placeholder: '火山引擎 AppId', configKey: 'doubaoAppId', type: 'text' },
-        ]
+        defaults: { doubaoResourceId: 'seed-tts-2.0' },
+        extra: []
       }
       return null
     }
@@ -617,6 +628,7 @@
             if (el && el.value.trim()) cfg[f.configKey] = el.value.trim()
           }
         }
+        if (detected.defaults) Object.assign(cfg, detected.defaults)
         if (detected.ttsProvider) cfg.ttsProvider = detected.ttsProvider
         return cfg
       }

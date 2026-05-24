@@ -187,6 +187,13 @@ function contentTypeFor(filePath) {
       return 'application/json; charset=utf-8'
     case '.svg':
       return 'image/svg+xml'
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.webp':
+      return 'image/webp'
     default:
       return 'text/plain; charset=utf-8'
   }
@@ -1274,8 +1281,9 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           // Read raw credentials from config.json
           let rawCfg = {}
           try { rawCfg = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.voice || {} } catch {}
+          const provider = rawCfg.voiceProvider || msg.provider || 'aliyun'
           session = createCloudASRSession(
-            { provider: msg.provider || 'aliyun', lang: msg.lang || 'zh', ...rawCfg },
+            { provider, lang: msg.lang || 'zh', ...rawCfg },
             (text, isFinal) => {
               try { ws.send(JSON.stringify({ type: 'transcript', text, is_final: isFinal })) } catch {}
             },

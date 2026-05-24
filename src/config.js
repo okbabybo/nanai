@@ -8,7 +8,7 @@ export const QWEN_PROVIDER = 'qwen'
 export const MOONSHOT_PROVIDER = 'moonshot'
 export const ZHIPU_PROVIDER = 'zhipu'
 
-export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash'
+export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-pro'
 export const DEFAULT_MINIMAX_MODEL = 'MiniMax-M2.7'
 export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini'
 export const DEFAULT_QWEN_MODEL = 'qwen-turbo'
@@ -629,6 +629,7 @@ export function setSocialConfig(updates) {
 }
 
 const VOICE_CONFIG_KEYS = [
+  'voiceProvider',
   'aliyunApiKey',
   'tencentSecretId', 'tencentSecretKey', 'tencentAppId',
   'xunfeiAppId', 'xunfeiApiKey', 'xunfeiApiSecret',
@@ -650,8 +651,9 @@ const CHAT_PROVIDERS_WITH_AMBIGUOUS_SK_KEYS = new Set([
 export function getVoiceConfig() {
   let stored = {}
   try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.voice || {} } catch {}
-  const result = {}
+  const result = { voiceProvider: stored.voiceProvider || 'aliyun' }
   for (const key of VOICE_CONFIG_KEYS) {
+    if (key === 'voiceProvider') continue
     result[key] = { configured: !!(stored[key]) }
     if (key === 'aliyunApiKey' && stored[key]) {
       result[key] = {

@@ -227,7 +227,8 @@ function createXunfeiSession(appId, apiKey, lang, onTranscript, onError, onClose
 // ─── 火山引擎豆包大模型流式 ASR ───
 // 协议：自定义二进制帧，首包 gzip JSON full request，后续 gzip PCM audio only request。
 const VOLC_BIGMODEL_ASR_URL = 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async'
-const VOLC_DEFAULT_RESOURCE_ID = 'volc.seedasr.sauc.duration'
+const VOLC_DEFAULT_RESOURCE_ID = 'volc.bigasr.sauc.duration'
+const VOLC_SEED_RESOURCE_ID = 'volc.seedasr.sauc.duration'
 const VOLC_PROTOCOL_VERSION = 0x1
 const VOLC_HEADER_SIZE = 0x1
 const VOLC_SERIALIZATION_NONE = 0x0
@@ -380,7 +381,15 @@ function createVolcengineSession(config, lang, onTranscript, onError, onClose) {
     }
   })
 
-  ws.on('error', (err) => { pending.length = 0; onError(err.message) })
+  ws.on('error', (err) => {
+    pending.length = 0
+    const resourceId = headers['X-Api-Resource-Id']
+    if (/Unexpected server response:\s*403/i.test(err.message || '') && resourceId === VOLC_SEED_RESOURCE_ID) {
+      onError(`${err.message}; current Resource ID is ${resourceId}. If this account has not enabled Doubao streaming ASR 2.0, use ${VOLC_DEFAULT_RESOURCE_ID}.`)
+      return
+    }
+    onError(err.message)
+  })
   ws.on('close', () => { pending.length = 0; closed = true; onClose() })
 
   return {

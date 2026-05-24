@@ -12,7 +12,7 @@ export const CONFIG_TOPICS = {
         title: '支持的服务商总览',
         content: `当前支持以下 LLM 服务商（配置入口：⚙ → 模型设置）：
 
-■ DeepSeek — deepseek-v4-flash（默认）、deepseek-v4-pro
+■ DeepSeek — deepseek-v4-pro（默认）、deepseek-v4-flash
 ■ MiniMax — MiniMax-M2.7、MiniMax-M1（同时提供 TTS）
 ■ 通义千问（Qwen）— qwen-turbo、qwen-plus
 ■ Moonshot（月之暗面）— moonshot-v1-8k、moonshot-v1-32k
@@ -28,7 +28,7 @@ export const CONFIG_TOPICS = {
 
 ■ 官网：https://deepseek.com
 ■ 字段：apiKey（格式：sk-xxxxxxxx）
-■ 默认模型：deepseek-v4-flash
+■ 默认模型：deepseek-v4-pro
 
 申请步骤：
 1. 打开官网 https://deepseek.com 注册/登录

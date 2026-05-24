@@ -73,7 +73,19 @@ function resolveDoubaoResourceId(voiceId, resourceId) {
   return 'seed-tts-2.0'
 }
 
-function decodeDoubaoLine(transform, rawLine) {
+function annotateDoubaoError(statusCode, message, { speaker, resourceId }) {
+  if (statusCode !== 55000000 || !/resource ID is mismatched/i.test(message || '')) {
+    return message || '未知错误'
+  }
+  return [
+    message,
+    `当前音色 ${speaker} 使用资源 ${resourceId}。`,
+    '豆包 2.0 音色（*_uranus_bigtts）需使用 seed-tts-2.0；1.0/moon/BV 音色需使用 seed-tts-1.0 或对应控制台资源。',
+    '请在语音设置中切换声音，或填写控制台中该音色对应的 Resource ID。',
+  ].join(' ')
+}
+
+function decodeDoubaoLine(transform, rawLine, context = {}) {
   const line = rawLine.trim().replace(/^data:\s*/, '')
   if (!line || line === '[DONE]') return
   if (!line.startsWith('{')) {
@@ -84,12 +96,13 @@ function decodeDoubaoLine(transform, rawLine) {
   const data = JSON.parse(line)
   const statusCode = Number(data.code ?? data.status_code ?? data.StatusCode ?? 0)
   if (statusCode > 0 && statusCode !== 20000000) {
-    throw new Error(`豆包 TTS 流错误 (${statusCode}): ${data.message || data.status_text || '未知错误'}`)
+    const message = annotateDoubaoError(statusCode, data.message || data.status_text, context)
+    throw new Error(`豆包 TTS 流错误 (${statusCode}): ${message}`)
   }
   if (data.data) transform.push(Buffer.from(data.data, 'base64'))
 }
 
-function decodeDoubaoStream(webStream) {
+function decodeDoubaoStream(webStream, context = {}) {
   let pending = ''
   const nodeStream = webStreamToNode(webStream)
   const transform = new Transform({
@@ -98,7 +111,7 @@ function decodeDoubaoStream(webStream) {
       const lines = pending.split(/\r?\n/)
       pending = lines.pop() || ''
       try {
-        for (const rawLine of lines) decodeDoubaoLine(this, rawLine)
+        for (const rawLine of lines) decodeDoubaoLine(this, rawLine, context)
         callback()
       } catch (err) {
         callback(err)
@@ -106,7 +119,7 @@ function decodeDoubaoStream(webStream) {
     },
     flush(callback) {
       try {
-        if (pending.trim()) decodeDoubaoLine(this, pending)
+        if (pending.trim()) decodeDoubaoLine(this, pending, context)
         callback()
       } catch (err) {
         callback(err)
@@ -157,7 +170,7 @@ async function streamDoubao({
   }
   const contentType = resp.headers.get('content-type') || ''
   if (contentType.includes('audio/')) return webStreamToNode(resp.body)
-  return decodeDoubaoStream(resp.body)
+  return decodeDoubaoStream(resp.body, { speaker, resourceId: resolvedResourceId })
 }
 
 // ── MiniMax TTS ────────────────────────────────────────────────────────────

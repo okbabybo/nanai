@@ -1,7 +1,10 @@
 {
   "clawbot": {},
   "voice": {
-    "whisperModel": "small"
+    "whisperModel": "small",
+    "voiceProvider": "volcengine",
+    "volcAsrApiKey": "0f9a6c2b-8d91-4f2b-92b0-531c357b24da",
+    "volcAsrResourceId": "volc.bigasr.sauc.duration"
   },
   "tts": {
     "ttsProvider": "doubao",

@@ -27,7 +27,7 @@ import { dispatchSocialMessage } from './social/dispatch.js'
 import { startSocialConnectors } from './social/index.js'
 import { buildHotspotRuntimeContext, buildHotspotPanelStateContext } from './hotspots.js'
 import { buildPersonCardRuntimeContext, buildPersonCardPanelStateContext } from './person-cards.js'
-import { buildWeatherRuntimeContext, getWeatherCardProps } from './weather.js'
+import { buildWeatherRuntimeContext, getWeatherCardProps, isWeatherQuery } from './weather.js'
 import { buildDocRuntimeContext, buildDocPanelStateContext, detectDocTopic, setDocPanelState } from './docs.js'
 import { collectSystemInfo, getSystemInfoBlock, getBatteryBlock, getDesktopPath } from './system-info.js'
 import { collectDesktopInfo, getDesktopBlock } from './desktop-scanner.js'
@@ -444,6 +444,52 @@ function deliverFallbackReply(msg, content, timestamp) {
   })
 }
 
+function formatQuickWeatherReply(cardProps) {
+  if (!cardProps) return ''
+  const city = cardProps.city || '当地'
+  const temp = Number.isFinite(cardProps.temp) ? `${Math.round(cardProps.temp)}度` : ''
+  const feel = Number.isFinite(cardProps.feel) ? `体感${Math.round(cardProps.feel)}` : ''
+  const condition = cardProps.condition || cardProps.desc || ''
+  const parts = [temp, feel, condition].filter(Boolean)
+  return parts.length ? `${city}现在${parts.join('，')}。` : ''
+}
+
+async function tryHandleDirectWeatherTurn(input, msg, { finishTurn } = {}) {
+  if (!msg || !isWeatherQuery(input)) return false
+
+  emitEvent('action', {
+    tool: 'weather_query',
+    summary: '查询天气',
+    detail: String(input || '').slice(0, 120),
+  })
+
+  const cardProps = await getWeatherCardProps(input)
+  if (!cardProps) return false
+
+  const reply = formatQuickWeatherReply(cardProps)
+  if (!reply) return false
+
+  const timestamp = nowTimestamp()
+  if (isVoiceChannel(msg.channel)) autoSpeakForVoiceReply(reply)
+  deliverFallbackReply(msg, reply, timestamp)
+
+  if (hasACUIClient()) {
+    const id = `weathercard-${Date.now()}`
+    emitUICommand({
+      op: 'mount',
+      id,
+      component: 'WeatherCard',
+      props: cardProps,
+      hint: { placement: 'notification', enter: 'flash-in', exit: 'flash-out' },
+    })
+    addActiveUICard(id, { component: 'WeatherCard' })
+    emitEvent('action', { tool: 'ui_show', summary: '推送卡片', detail: 'WeatherCard' })
+  }
+
+  finishTurn?.(reply)
+  return true
+}
+
 export function buildToolContext({ currentTargetId = null, conversationWindow = [], includeRecentPartners = false } = {}) {
   const visibleTargetIds = [
     currentTargetId,
@@ -858,6 +904,12 @@ async function runTurn(input, label, msg = null) {
   const controller = new AbortController()
   let llmResult = null
   let toolCallLog = []
+  let terminalEmitted = false
+  const finishTurn = (content = '') => {
+    if (isTick || terminalEmitted) return
+    terminalEmitted = true
+    emitEvent('response', { sessionRef, label, content })
+  }
 
   console.log(`\n── ${label} ──`)
   emitEvent(isTick ? 'tick' : 'message_received', { label, input: input.slice(0, 300) })
@@ -887,12 +939,17 @@ async function runTurn(input, label, msg = null) {
         emitEvent('key_configured', {
           ttsText: autoConfigResult.hasTTS ? 'Voice synthesis successful' : null,
         })
+        finishTurn()
         return  // Skip LLM, silent round
       }
       if (autoConfigResult && !autoConfigResult.ok) {
         // Key detected but validation failed: keep message and let LLM inform the user
         keyConfigFailDir = `[system] An API key was detected in the user message but validation failed: ${autoConfigResult.error}. Inform the user that the key is invalid and suggest checking whether it is correct or has expired.`
       }
+    }
+
+    if (!isTick && await tryHandleDirectWeatherTurn(input, msg, { finishTurn })) {
+      return
     }
 
     // 1. Injector
@@ -1252,6 +1309,7 @@ async function runTurn(input, label, msg = null) {
       llmResult = { content: '', toolResult: null, aborted: true }
     } else {
       handleLLMFailure(err, label, msg)
+      finishTurn()
       return
     }
   } finally {
@@ -1272,7 +1330,7 @@ async function runTurn(input, label, msg = null) {
   state.lastToolResult = llmResult.toolResult || null
 
   console.log('\nJarvis:', response)
-  emitEvent('response', { sessionRef, label, content: response })
+  finishTurn(response)
 
   // User messages must not fail silently: if the model generated a response but forgot to call send_message,
   // the runtime delivers it as a fallback; TICK/proactive messages must still go through explicit tool calls.

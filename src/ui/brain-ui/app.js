@@ -1683,6 +1683,10 @@ function initTTSSettings() {
     updateVoiceOptions(provider, tts?.ttsVoiceId);
     const appidEl = document.getElementById("tts-volcano-appid");
     if (appidEl && tts?.volcanoAppId?.value) appidEl.value = tts.volcanoAppId.value;
+    const doubaoAppIdEl = document.getElementById("tts-doubao-appid");
+    if (doubaoAppIdEl && tts?.doubaoAppId?.value) doubaoAppIdEl.value = tts.doubaoAppId.value;
+    const doubaoResourceEl = document.getElementById("tts-doubao-resource");
+    if (doubaoResourceEl && tts?.doubaoResourceId) doubaoResourceEl.value = tts.doubaoResourceId;
     const baseurlEl = document.getElementById("tts-openai-baseurl");
     if (baseurlEl && tts?.openaiTtsBaseURL) baseurlEl.value = tts.openaiTtsBaseURL;
     showCredSection(provider);
@@ -1700,6 +1704,12 @@ function initTTSSettings() {
       if (minimaxKey) ttsBody.minimaxKey = minimaxKey;
       const doubaoKey = document.getElementById("tts-doubao-key")?.value?.trim();
       if (doubaoKey) ttsBody.doubaoKey = doubaoKey;
+      const doubaoResource = document.getElementById("tts-doubao-resource")?.value?.trim();
+      if (doubaoResource) ttsBody.doubaoResourceId = doubaoResource;
+      const doubaoAppId = document.getElementById("tts-doubao-appid")?.value?.trim();
+      if (doubaoAppId) ttsBody.doubaoAppId = doubaoAppId;
+      const doubaoAccessKey = document.getElementById("tts-doubao-access-key")?.value?.trim();
+      if (doubaoAccessKey) ttsBody.doubaoAccessKey = doubaoAccessKey;
       const openaiKey = document.getElementById("tts-openai-key")?.value?.trim();
       if (openaiKey) ttsBody.openaiTtsKey = openaiKey;
       const baseURL = document.getElementById("tts-openai-baseurl")?.value?.trim();
@@ -1716,7 +1726,7 @@ function initTTSSettings() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(ttsBody),
       }).then(() => {
-        ["tts-minimax-key", "tts-doubao-key", "tts-openai-key", "tts-elevenlabs-key", "tts-volcano-token"].forEach(id => {
+        ["tts-minimax-key", "tts-doubao-key", "tts-doubao-access-key", "tts-openai-key", "tts-elevenlabs-key", "tts-volcano-token"].forEach(id => {
           const el = document.getElementById(id);
           if (el) el.value = "";
         });
@@ -1736,6 +1746,12 @@ function initTTSSettings() {
         if (minimaxKey2) preBody.minimaxKey = minimaxKey2;
         const doubaoKey = document.getElementById("tts-doubao-key")?.value?.trim();
         if (doubaoKey) preBody.doubaoKey = doubaoKey;
+        const doubaoResource = document.getElementById("tts-doubao-resource")?.value?.trim();
+        if (doubaoResource) preBody.doubaoResourceId = doubaoResource;
+        const doubaoAppId = document.getElementById("tts-doubao-appid")?.value?.trim();
+        if (doubaoAppId) preBody.doubaoAppId = doubaoAppId;
+        const doubaoAccessKey = document.getElementById("tts-doubao-access-key")?.value?.trim();
+        if (doubaoAccessKey) preBody.doubaoAccessKey = doubaoAccessKey;
         const openaiKey = document.getElementById("tts-openai-key")?.value?.trim();
         if (openaiKey) preBody.openaiTtsKey = openaiKey;
         const elevenKey = document.getElementById("tts-elevenlabs-key")?.value?.trim();
@@ -2130,9 +2146,53 @@ function initTTSSettings() {
     }
   }
 
+  function detectVoiceProviderFromKey(key) {
+    const value = (key || "").trim();
+    if (!value) return null;
+    if (/^sk-[A-Za-z0-9_\-.]{20,}$/.test(value)) {
+      return { provider: "aliyun", label: "阿里云 ASR", fieldId: "voice-aliyun-key" };
+    }
+    if (/^AKID/i.test(value)) {
+      return { provider: "tencent", label: "腾讯云 ASR", fieldId: "voice-tencent-sid" };
+    }
+    if (/^\d{6,10}$/.test(value)) {
+      return { provider: "xunfei", label: "科大讯飞", fieldId: "voice-xunfei-appid" };
+    }
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+      return {
+        provider: "volcengine",
+        label: "火山豆包 ASR",
+        fieldId: "voice-volc-apikey",
+        defaults: { "voice-volc-resourceid": "volc.bigasr.sauc.duration" },
+      };
+    }
+    return null;
+  }
+
   const voiceProviderSelect = document.getElementById("voice-provider-select");
   if (voiceProviderSelect) {
     voiceProviderSelect.addEventListener("change", () => applyVoiceProviderUI(voiceProviderSelect.value));
+  }
+
+  const voiceAutoKey = document.getElementById("voice-auto-key");
+  const voiceAutoDetect = document.getElementById("voice-auto-detect");
+  if (voiceAutoKey) {
+    voiceAutoKey.addEventListener("input", () => {
+      const detected = detectVoiceProviderFromKey(voiceAutoKey.value);
+      if (!detected) {
+        if (voiceAutoDetect) voiceAutoDetect.textContent = voiceAutoKey.value.trim() ? "未识别" : "";
+        return;
+      }
+      if (voiceProviderSelect) voiceProviderSelect.value = detected.provider;
+      applyVoiceProviderUI(detected.provider);
+      const target = document.getElementById(detected.fieldId);
+      if (target) target.value = voiceAutoKey.value.trim();
+      for (const [id, value] of Object.entries(detected.defaults || {})) {
+        const el = document.getElementById(id);
+        if (el && !el.value.trim()) el.value = value;
+      }
+      if (voiceAutoDetect) voiceAutoDetect.textContent = detected.label;
+    });
   }
 
   async function loadVoiceSettings() {
@@ -2146,7 +2206,15 @@ function initTTSSettings() {
     if (voiceThreshSlider) voiceThreshSlider.value = String(savedThresh);
     if (voiceThreshVal)    voiceThreshVal.textContent = savedThresh.toFixed(3);
 
-    const savedProvider = localStorage.getItem(VOICE_PROVIDER_KEY) || "aliyun";
+    let savedProvider = localStorage.getItem(VOICE_PROVIDER_KEY) || "aliyun";
+    try {
+      const resp = await fetch("http://127.0.0.1:3721/settings/voice");
+      const data = await resp.json().catch(() => ({}));
+      if (resp.ok && data?.voice?.voiceProvider) {
+        savedProvider = data.voice.voiceProvider;
+        localStorage.setItem(VOICE_PROVIDER_KEY, savedProvider);
+      }
+    } catch {}
     if (voiceProviderSelect) voiceProviderSelect.value = savedProvider;
     applyVoiceProviderUI(savedProvider);
   }
@@ -2174,7 +2242,7 @@ function initTTSSettings() {
 
       window.dispatchEvent(new CustomEvent("bailongma:voice-threshold", { detail: { threshold } }));
 
-      const body = {};
+      const body = { voiceProvider: provider };
       const aliyunKey = document.getElementById("voice-aliyun-key")?.value?.trim();
       if (aliyunKey) body.aliyunApiKey = aliyunKey;
       const tencentSid = document.getElementById("voice-tencent-sid")?.value?.trim();
@@ -2207,6 +2275,7 @@ function initTTSSettings() {
           if (!resp.ok) throw new Error("保存失败");
           [
             "voice-aliyun-key",
+            "voice-auto-key",
             "voice-tencent-sid",
             "voice-tencent-skey",
             "voice-xunfei-apikey",
@@ -2217,6 +2286,7 @@ function initTTSSettings() {
             const el = document.getElementById(id);
             if (el) el.value = "";
           });
+          if (voiceAutoDetect) voiceAutoDetect.textContent = "";
           showFeedback(voiceFeedback, "已保存");
         } catch { showFeedback(voiceFeedback, "保存失败", true); }
         finally { saveVoiceBtn.disabled = false; }

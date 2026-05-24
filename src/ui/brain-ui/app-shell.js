@@ -345,6 +345,11 @@ const createSettingsModal = () => `
           <div class="settings-section">
             <div class="settings-section-label">云端模式配置</div>
             <div class="settings-row">
+              <label class="settings-label" for="voice-auto-key">粘贴 Key 自动识别厂商</label>
+              <input class="settings-input" type="password" id="voice-auto-key" placeholder="阿里云 / 腾讯云 / 讯飞 / 火山豆包 ASR Key">
+              <span id="voice-auto-detect" style="color:var(--cool);font-size:12px;min-width:86px;text-align:right;"></span>
+            </div>
+            <div class="settings-row">
               <label class="settings-label" for="voice-provider-select">服务商</label>
               <select class="settings-select" id="voice-provider-select">
                 <option value="aliyun">阿里云百炼（推荐）</option>
@@ -380,7 +385,7 @@ const createSettingsModal = () => `
               </div>
               <div class="settings-row">
                 <label class="settings-label" for="voice-volc-resourceid">Resource ID</label>
-                <input class="settings-input" type="text" id="voice-volc-resourceid" placeholder="volc.seedasr.sauc.duration">
+                <input class="settings-input" type="text" id="voice-volc-resourceid" placeholder="volc.bigasr.sauc.duration">
               </div>
               <div class="settings-row">
                 <label class="settings-label" for="voice-volc-appkey">App Key（旧版）</label>
@@ -455,7 +460,19 @@ const createSettingsModal = () => `
                 <label class="settings-label" for="tts-doubao-key">API Key</label>
                 <input class="settings-input" type="password" id="tts-doubao-key" placeholder="留空则不修改">
               </div>
-              <p class="settings-hint">在<a href="https://console.volcengine.com/speech/new/" target="_blank" style="color:var(--cool)">豆包语音合成 2.0 控制台</a>获取 API Key（需先完成实名认证和服务开通）。音色默认使用 seed-tts-2.0。</p>
+              <div class="settings-row">
+                <label class="settings-label" for="tts-doubao-resource">Resource ID</label>
+                <input class="settings-input" type="text" id="tts-doubao-resource" placeholder="自动匹配，或填 seed-tts-2.0 / seed-tts-1.0">
+              </div>
+              <div class="settings-row">
+                <label class="settings-label" for="tts-doubao-appid">AppId</label>
+                <input class="settings-input" type="text" id="tts-doubao-appid" placeholder="旧版控制台鉴权选填">
+              </div>
+              <div class="settings-row">
+                <label class="settings-label" for="tts-doubao-access-key">Access Key</label>
+                <input class="settings-input" type="password" id="tts-doubao-access-key" placeholder="旧版控制台 Access Token，留空则不修改">
+              </div>
+              <p class="settings-hint">在<a href="https://console.volcengine.com/speech/new/" target="_blank" style="color:var(--cool)">豆包语音合成控制台</a>获取 API Key。2.0 音色使用 seed-tts-2.0；1.0/moon/BV 音色使用 seed-tts-1.0 或控制台对应资源。</p>
             </div>
 
             <div id="tts-creds-minimax" style="display:none;">

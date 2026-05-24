@@ -5,12 +5,62 @@
 import { getConfig, setConfig } from './db.js'
 
 const CACHE_TTL_MS = 30 * 60 * 1000  // 30 分钟
-const FETCH_TIMEOUT_MS = 8000
+const FETCH_TIMEOUT_MS = 6000
 
 // 触发天气注入的关键词（中英双语）
 const WEATHER_RE = /天气|气温|温度|下雨|下雪|晴天?|阴天?|多云|刮风|风大|雾霾|冷不冷|热不热|穿什么|穿衣|要下[雨雪]|今天冷|今天热|weather|forecast|raining|snowing|temperature|how.*cold|how.*hot/i
 
 let cache = null  // { location, formatted, cardProps, fetchedAt }
+
+const WEATHER_LOCATION_ALIASES = [
+  { re: /汕尾.*陆丰|陆丰.*汕尾/i, value: 'Lufeng Shanwei Guangdong' },
+  { re: /陆丰/i, value: 'Lufeng Shanwei Guangdong' },
+  { re: /汕尾/i, value: 'Shanwei Guangdong' },
+  { re: /上海/i, value: 'Shanghai China' },
+  { re: /广州/i, value: 'Guangzhou Guangdong China' },
+  { re: /北京/i, value: 'Beijing China' },
+  { re: /深圳/i, value: 'Shenzhen Guangdong China' },
+  { re: /杭州/i, value: 'Hangzhou Zhejiang China' },
+]
+
+const LOCATION_PREFIX_RE = /^(?:呃|嗯|啊|那个|帮我|麻烦|请|给我|打开|开一下|查看|看一下|看下|查一下|查下|查询|搜一下|搜下|问一下|问下|告诉我|看看|一下|我)+/u
+const LOCATION_NOISE_RE = /^(?:今天|明天|后天|现在|当前|实时|本地|当地|这里|我这边|附近|周边|未来|最近|怎么样|如何|咋样|怎样|好吗|好不好)+$/u
+
+function normalizeWeatherLocation(location = '') {
+  let loc = String(location || '')
+    .replace(/[，。？！；、,.!?;:]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(LOCATION_PREFIX_RE, '')
+    .replace(/(?:今天|明天|后天|现在|当前|实时|未来(?:三天|两天|几天)?|最近|这几天|一下|打开|查看|我|的|怎么样|如何|咋样|怎样|好吗|好不好)/gu, '')
+    .trim()
+
+  if (!loc || LOCATION_NOISE_RE.test(loc)) return ''
+  for (const item of WEATHER_LOCATION_ALIASES) {
+    if (item.re.test(loc)) return item.value
+  }
+  return loc
+}
+
+export function extractWeatherLocation(message = '') {
+  const text = String(message || '').trim()
+  if (!text) return ''
+
+  const chineseBefore = text.match(/([\u4e00-\u9fa5A-Za-z\s,，.-]{1,50}?)(?:的)?(?:天气|气温|温度|预报)/u)
+  const beforeLoc = normalizeWeatherLocation(chineseBefore?.[1] || '')
+  if (beforeLoc) return beforeLoc
+
+  const chineseAfter = text.match(/(?:天气|气温|温度|预报)(?:在|查|看|:|：)?\s*([\u4e00-\u9fa5A-Za-z\s,，.-]{1,50})/u)
+  const afterLoc = normalizeWeatherLocation(chineseAfter?.[1] || '')
+  if (afterLoc) return afterLoc
+
+  const english = text.match(/(?:weather|forecast|temperature)\s+(?:in|for|of)?\s*([A-Za-z][A-Za-z\s,.-]{1,50})/i)
+  return normalizeWeatherLocation(english?.[1] || '')
+}
+
+function resolveWeatherLocation(message = '') {
+  return extractWeatherLocation(message) || getUserLocation()
+}
 
 /* ── 位置存取 ── */
 
@@ -36,7 +86,7 @@ function isCacheFresh(location) {
 /* ── 拉取 & 解析 wttr.in ── */
 
 async function fetchWeatherData(location) {
-  const url = `https://wttr.in/${encodeURIComponent(location)}?format=j1`
+  const url = `https://wttr.in/${encodeURIComponent(location)}?format=j1&lang=zh`
   const res = await globalThis.fetch(url, {
     headers: { 'User-Agent': 'Bailongma/1.0 (+https://localhost)' },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -55,6 +105,7 @@ const WEATHER_DESC_ZH = {
   'Fog': '雾',
   'Freezing fog': '冻雾',
   'Light rain': '小雨',
+  'Light rain shower': '小阵雨',
   'Moderate rain': '中雨',
   'Heavy rain': '大雨',
   'Light snow': '小雪',
@@ -63,6 +114,7 @@ const WEATHER_DESC_ZH = {
   'Blizzard': '暴风雪',
   'Thundery outbreaks possible': '可能有雷暴',
   'Patchy rain possible': '局部有雨',
+  'Patchy rain nearby': '局部有雨',
   'Patchy snow possible': '局部有雪',
   'Blowing snow': '吹雪',
   'Light drizzle': '细雨',
@@ -83,9 +135,10 @@ function parseWeatherData(data, location) {
   const cur = data?.current_condition?.[0]
   if (!cur) return null
 
-  const desc = localizeDesc(cur.weatherDesc?.[0]?.value || '')
-  const tempC = cur.temp_C
-  const feelsC = cur.FeelsLikeC
+  const areaName = data?.nearest_area?.[0]?.areaName?.[0]?.value
+  const desc = localizeDesc(cur.lang_zh?.[0]?.value || cur.weatherDesc?.[0]?.value || '')
+  const tempC = Number(cur.temp_C)
+  const feelsC = Number(cur.FeelsLikeC)
   const humidity = cur.humidity
   const windKmph = cur.windspeedKmph
   const windDir = cur.winddir16Point || ''
@@ -97,9 +150,9 @@ function parseWeatherData(data, location) {
 
   const forecastDays = (data?.weather || []).slice(1, 3).map(d => ({
     day: d.date || '',
-    condition: localizeDesc(d.hourly?.[4]?.weatherDesc?.[0]?.value || ''),
-    high: d.maxtempC,
-    low: d.mintempC,
+    condition: localizeDesc(d.hourly?.[4]?.lang_zh?.[0]?.value || d.hourly?.[4]?.weatherDesc?.[0]?.value || ''),
+    high: Number(d.maxtempC),
+    low: Number(d.mintempC),
   }))
 
   const formatted = [
@@ -111,12 +164,12 @@ function parseWeatherData(data, location) {
   ].join('\n')
 
   const cardProps = {
-    city: location,
+    city: areaName || location,
     temp: tempC,
     condition: desc,
     feel: feelsC,
-    high: maxC,
-    low: minC,
+    high: Number(maxC),
+    low: Number(minC),
     wind: windDir ? `${windDir} ${windKmph} km/h` : `${windKmph} km/h`,
     forecast: forecastDays,
   }
@@ -152,7 +205,7 @@ export function isWeatherQuery(message = '') {
 export async function buildWeatherRuntimeContext(message = '') {
   if (!isWeatherQuery(message)) return ''
 
-  const location = getUserLocation()
+  const location = resolveWeatherLocation(message)
   if (!location) return ''
 
   const result = await fetchAndCacheWeather(location)
@@ -173,7 +226,7 @@ ${result.formatted}`
 export async function getWeatherCardProps(message = '') {
   if (!isWeatherQuery(message)) return null
 
-  const location = getUserLocation()
+  const location = resolveWeatherLocation(message)
   if (!location) return null
 
   const result = await fetchAndCacheWeather(location)

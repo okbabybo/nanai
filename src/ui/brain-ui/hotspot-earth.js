@@ -1,14 +1,15 @@
 // Three.js 3D 地球组件 — 支持拖拽旋转、滚轮缩放、入场动画
 
+const THREE_LOCAL = './vendor/three/three.module.js';
 const THREE_CDN = 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
 const THREE_CDN_FALLBACK = 'https://unpkg.com/three@0.160.0/build/three.module.js';
 
 // 贴图资源（NASA + mrdoob/three.js 公开贴图）
 const TEX = {
-  earth:   'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_atmos_2048.jpg',
-  normal:  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_normal_2048.jpg',
-  specular:'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_specular_2048.jpg',
-  clouds:  'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r128/examples/textures/planets/earth_clouds_2048.png',
+  earth:   new URL('./vendor/earth/earth_atmos_2048.jpg', import.meta.url).href,
+  normal:  new URL('./vendor/earth/earth_normal_2048.jpg', import.meta.url).href,
+  specular:new URL('./vendor/earth/earth_specular_2048.jpg', import.meta.url).href,
+  clouds:  new URL('./vendor/earth/earth_clouds_2048.png', import.meta.url).href,
 };
 
 // CDN 贴图失败时的程序生成 fallback 地球贴图
@@ -90,11 +91,16 @@ let THREE = null;
 async function loadThree() {
   if (THREE) return THREE;
   try {
-    const mod = await import(THREE_CDN);
+    const mod = await import(THREE_LOCAL);
     THREE = mod;
   } catch {
-    const mod = await import(THREE_CDN_FALLBACK);
-    THREE = mod;
+    try {
+      const mod = await import(THREE_CDN);
+      THREE = mod;
+    } catch {
+      const mod = await import(THREE_CDN_FALLBACK);
+      THREE = mod;
+    }
   }
   return THREE;
 }
