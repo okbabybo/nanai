@@ -59,7 +59,7 @@ const FOCUS_BANNER_TOOLS = ['focus_banner']
 const ADMIN_TOOLS       = [
   'install_tool', 'uninstall_tool', 'list_tools',
   'set_security', 'connect_wechat',
-  'set_location', 'set_agent_name', 'manage_app',
+  'set_location', 'set_agent_name', 'manage_app', 'manage_rule',
 ]
 
 // 多模态生成（按 mmCaps gate；关键词命中后才注入对应工具）
@@ -143,6 +143,8 @@ const ADMIN_TRIGGERS = [
   '位置', '在哪', '改名字', '改名', '叫你', '叫我', '管理应用', 'app 列表',
   'install tool', 'uninstall', 'plugin', 'security', 'sandbox', 'wechat',
   'connect ', 'location', 'rename', 'apps',
+  '规则', '关键词规则', '上下文规则', '记忆注入',
+  'rule', 'rules', 'context rule', 'keyword rule', 'memory injection',
 ]
 
 // 多模态生成专用触发（关键词必须足够具体——单字"说""画"在中文里太宽泛

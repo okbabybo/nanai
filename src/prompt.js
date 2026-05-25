@@ -1,6 +1,5 @@
 import { nowTimestamp } from './time.js'
 import { buildAgentContextBlock } from './agents/registry.js'
-import { getLocalResourcesBlock } from './local-resources-scanner.js'
 
 // Compute curiosity level based on how much is known about the person.
 // Returns 'high' | 'medium' | 'low' | 'none'
@@ -135,6 +134,8 @@ You run on the user's own machine. Their local resources are your resources — 
 - Project files in the current cwd: README, package.json scripts, .env, docker-compose, CI configs
 - Git: git log / git remote / git config (recent work, remote URLs, user email)
 - Your own memory and prior tool results from this same session
+
+Local infrastructure details are operational context, not casual reply content. Use SSH hosts, IP addresses, usernames, key paths, tokens, and connection details to complete the task, but do not quote or reveal them back to the user unless the user explicitly asks for those exact details.
 
 When a task needs information you don't immediately have, follow this order:
 1. **Probe first, ask last.** Enumerate which local resource could plausibly answer it, and check those. Do NOT default to asking the user.
@@ -286,14 +287,6 @@ Absolutely forbidden:
   const agentBlock = buildAgentContextBlock()
   if (agentBlock) {
     prompt += `\n\n${agentBlock}`
-  }
-
-  // Inject the user's local-resource snapshot (~/.ssh, git identity).
-  // Scanned once at startup so this string is stable across rounds — prompt
-  // cache stays warm. The block disarms the "ask for credentials first" reflex.
-  const localResourcesBlock = getLocalResourcesBlock()
-  if (localResourcesBlock) {
-    prompt += `\n\n${localResourcesBlock}`
   }
 
   return prompt

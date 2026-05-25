@@ -21,6 +21,7 @@ import { execBrowserRead, execFetchUrl, execWebSearch } from './tools/web.js'
 import { execDowngradeMemory, execMergeMemories, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory } from './tools/memory.js'
 import { execManageReminder } from './tools/reminders.js'
 import { execGenerateImage, execGenerateLyrics, execGenerateMusic, execMediaMode, execMusic, execSpeak } from './tools/media.js'
+import { execManageRule } from './tools/rules.js'
 export { calculateNextDueAt } from './tools/reminders.js'
 export { autoSpeakForVoiceReply } from './tools/media.js'
 export { persistAppState } from './tools/ui.js'
@@ -96,6 +97,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execManageReminder(args, context)
       case 'manage_prefetch_task':
         return execManagePrefetchTask(args)
+      case 'manage_rule':
+        return execManageRule(args)
       case 'ui_show':
         return execUIShow(args)
       case 'ui_update':

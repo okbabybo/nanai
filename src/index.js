@@ -7,7 +7,7 @@ import { updateFocusFrame } from './memory/focus.js'
 import { compressPoppedFrame } from './memory/focus-compress.js'
 import { runMemoryRefreshLoop } from './memory/refresh-loop.js'
 import { startConsolidationLoop } from './memory/consolidation-loop.js'
-import { gatherContext, formatExtraContext } from './context/gatherer.js'
+import { runRuntimeInjector } from './context/runtime-injector.js'
 import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, saveFocusStack } from './db.js'
 import { calculateNextDueAt, autoSpeakForVoiceReply } from './capabilities/executor.js'
 import { popMessage, hasMessages, hasUserMessages, getQueueSnapshot, setInterruptCallback, requeueMessage, pushMessage } from './queue.js'
@@ -25,10 +25,7 @@ import { ensureSkillMemories } from './memory/seed-skills.js'
 import { loadInstalledTools } from './capabilities/marketplace/index.js'
 import { dispatchSocialMessage } from './social/dispatch.js'
 import { startSocialConnectors } from './social/index.js'
-import { buildHotspotRuntimeContext, buildHotspotPanelStateContext } from './hotspots.js'
-import { buildPersonCardRuntimeContext, buildPersonCardPanelStateContext } from './person-cards.js'
-import { buildWeatherRuntimeContext, getWeatherCardProps, isWeatherQuery } from './weather.js'
-import { buildDocRuntimeContext, buildDocPanelStateContext, detectDocTopic, setDocPanelState } from './docs.js'
+import { getWeatherCardProps, isWeatherQuery } from './weather.js'
 import { collectSystemInfo, getSystemInfoBlock, getBatteryBlock, getDesktopPath } from './system-info.js'
 import { collectDesktopInfo, getDesktopBlock } from './desktop-scanner.js'
 import { collectLocalResources } from './local-resources-scanner.js'
@@ -1073,46 +1070,34 @@ async function runTurn(input, label, msg = null) {
 
     // Real-time user messages take the fast path: skip heavy context gathering to avoid slowdowns from task background.
     const prefetchText = formatPrefetchedItems(injection.prefetchedItems)
-    const hotspotStateText = buildHotspotPanelStateContext()
-    const hotspotContextText = buildHotspotRuntimeContext(msg?.content || input)
-    const personCardStateText = buildPersonCardPanelStateContext()
-    const personCardContextText = buildPersonCardRuntimeContext(msg?.content || input)
-    const weatherContextText = await buildWeatherRuntimeContext(msg?.content || input)
-    // Keyword detection is a soft hint injected into context; the agent decides whether to open the doc panel
-    const detectedDocTopic = detectDocTopic(msg?.content || input)
-    const docStateText = buildDocPanelStateContext(detectedDocTopic)
-    const docContextText = buildDocRuntimeContext(msg?.content || input)
+    const runtimeInjection = await runRuntimeInjector({
+      message: msg?.content || input,
+      task: state.task,
+      taskKnowledge: taskKnowledgeText,
+      memories: memoriesText,
+      fastUserPath,
+      signal: controller.signal,
+    })
+    throwIfAborted(controller.signal)
 
     // When weather keywords are detected, auto-pop WeatherCard after 1 second
-    if (weatherContextText && hasACUIClient()) {
+    if (runtimeInjection.weatherCardProps && hasACUIClient()) {
       setTimeout(() => {
-        getWeatherCardProps(msg?.content || input).then(cardProps => {
-          if (!cardProps) return
-          const id = `weathercard-${Date.now()}`
-          emitUICommand({ op: 'mount', id, component: 'WeatherCard', props: cardProps, hint: { placement: 'notification', enter: 'flash-in', exit: 'flash-out' } })
-          addActiveUICard(id, { component: 'WeatherCard' })
-        }).catch(() => {})
+        const id = `weathercard-${Date.now()}`
+        emitUICommand({ op: 'mount', id, component: 'WeatherCard', props: runtimeInjection.weatherCardProps, hint: { placement: 'notification', enter: 'flash-in', exit: 'flash-out' } })
+        addActiveUICard(id, { component: 'WeatherCard' })
       }, 1000)
     }
 
     // 用户跨渠道可达性快照（让 L2 主动消息能选对渠道：用户在外面就发微信，在电脑前就发本地）
     const presenceText = formatPresenceForPrompt(PRIMARY_USER_ID)
 
-    let extraContextText = ''
-    if (state.task && !fastUserPath) {
-      const extraContext = await gatherContext({
-        task: state.task,
-        taskKnowledge: taskKnowledgeText,
-        memories: memoriesText,
-        message: input,
-        signal: controller.signal,
+    if (runtimeInjection.taskExtraContextItems.length > 0) {
+      console.log(`[context] Added ${runtimeInjection.taskExtraContextItems.length} context item(s)`)
+      emitEvent('context_gathered', {
+        count: runtimeInjection.taskExtraContextItems.length,
+        items: runtimeInjection.taskExtraContextItems.map(c => c.label),
       })
-      throwIfAborted(controller.signal)
-      extraContextText = formatExtraContext(extraContext)
-      if (extraContext.length > 0) {
-        console.log(`[context] Added ${extraContext.length} context item(s)`)
-        emitEvent('context_gathered', { count: extraContext.length, items: extraContext.map(c => c.label) })
-      }
     }
 
     // Emit injector result event (used by brain.html for display)
@@ -1162,7 +1147,7 @@ async function runTurn(input, label, msg = null) {
     const agentName = getConfig('agent_name') || '小白龙'
     const entities = getKnownEntities()
     const hasActiveTask = !!state.task
-    const extraContextJoined = [presenceText, hotspotStateText, hotspotContextText, personCardStateText, personCardContextText, weatherContextText, docStateText, docContextText, prefetchText, extraContextText, injection.uiSignalSummary, formatActiveUICards(injection.activeUICards)].filter(Boolean).join('\n\n')
+    const extraContextJoined = [presenceText, runtimeInjection.contextText, prefetchText, injection.uiSignalSummary, formatActiveUICards(injection.activeUICards)].filter(Boolean).join('\n\n')
 
     // system 只留稳定硬底线（agent_name / persona / security）—— 让 DeepSeek prefix cache
     // 真正命中。currentTime / existenceDesc / systemEnv 改走 <runtime> 段（每轮变化）。

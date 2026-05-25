@@ -1,6 +1,6 @@
 import { buildSystemPrompt, buildContextBlock, combinePromptForPreview } from './prompt.js'
 import { runInjector, formatMemoriesForPrompt, formatTaskKnowledge, formatTemporalRecall } from './memory/injector.js'
-import { gatherContext, formatExtraContext } from './context/gatherer.js'
+import { runRuntimeInjector } from './context/runtime-injector.js'
 import { getConfig, getKnownEntities, getOrInitBirthTime } from './db.js'
 import { formatTick, describeExistence } from './time.js'
 
@@ -28,16 +28,12 @@ export async function buildHeartbeatSystemPromptPreview({
   const taskKnowledgeText = formatTaskKnowledge(injection.taskKnowledge)
   const temporalRecallText = formatTemporalRecall(injection.temporalRecall)
 
-  let extraContextText = ''
-  if (workingState.task) {
-    const extraContext = await gatherContext({
-      task: workingState.task,
-      taskKnowledge: taskKnowledgeText,
-      memories: memoriesText,
-      message,
-    })
-    extraContextText = formatExtraContext(extraContext)
-  }
+  const runtimeInjection = await runRuntimeInjector({
+    message,
+    task: workingState.task,
+    taskKnowledge: taskKnowledgeText,
+    memories: memoriesText,
+  })
 
   const persona = getConfig('persona') || ''
   const agentName = getConfig('agent_name') || '小白龙'
@@ -60,7 +56,7 @@ export async function buildHeartbeatSystemPromptPreview({
     hasActiveTask: !!workingState.task,
     task: workingState.task || null,
     taskKnowledge: taskKnowledgeText,
-    extraContext: extraContextText,
+    extraContext: runtimeInjection.contextText,
     // Runtime info 也注入预览，让 UI 看到完整 context
     existenceDesc: describeExistence(birthTime),
   })
@@ -93,7 +89,9 @@ export async function buildHeartbeatSystemPromptPreview({
       temporalRecallText,
       directionsText,
       taskKnowledgeText,
-      extraContextText,
+      extraContextText: runtimeInjection.taskExtraContextText,
+      keywordContextText: runtimeInjection.keywordContextText,
+      runtimeContextText: runtimeInjection.contextText,
     },
   }
 }

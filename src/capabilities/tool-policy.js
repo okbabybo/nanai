@@ -17,6 +17,7 @@ const TOOL_RISK = {
   manage_reminder: 'medium',
   schedule_reminder: 'medium',
   manage_prefetch_task: 'medium',
+  manage_rule: 'medium',
   ui_show: 'medium',
   ui_update: 'medium',
   ui_hide: 'medium',
