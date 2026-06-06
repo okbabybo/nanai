@@ -36,16 +36,19 @@ export function initChat({
 
   const PUSH_TO_TALK_PLACEHOLDER = "按住空格键开始说话";
 
-  // 聚焦输入框时提示发消息，未聚焦时提示语音输入
-  function idlePlaceholder() {
-    return document.activeElement === msgInput ? defaultInputPlaceholder() : PUSH_TO_TALK_PLACEHOLDER;
+  function refreshInputPlaceholder() {
+    if (inputLocked) return;
+    msgInput.placeholder = document.activeElement === msgInput
+      ? defaultInputPlaceholder(true)
+      : PUSH_TO_TALK_PLACEHOLDER;
   }
 
   function setComposerLocked(locked, reason = "") {
     inputLocked = locked;
     msgInput.disabled = locked;
     sendBtn.disabled = locked;
-    msgInput.placeholder = locked ? (reason || "系统准备中…") : idlePlaceholder();
+    if (locked) msgInput.placeholder = reason || "系统准备中…";
+    else refreshInputPlaceholder();
   }
 
   function releaseWarmupLock() {
@@ -266,11 +269,11 @@ export function initChat({
   });
   chatArea.addEventListener("mouseleave", () => scheduleClose());
   msgInput.addEventListener("focus", () => {
+    refreshInputPlaceholder();
     openChat();
-    if (!inputLocked) msgInput.placeholder = defaultInputPlaceholder();
   });
   msgInput.addEventListener("blur", () => {
-    if (!inputLocked) msgInput.placeholder = PUSH_TO_TALK_PLACEHOLDER;
+    refreshInputPlaceholder();
     if (!isTyping()) scheduleClose();
     // 延迟关闭，让命令项的 mousedown 先触发
     setTimeout(hideSlashMenu, 120);
@@ -290,7 +293,7 @@ export function initChat({
   sendBtn.addEventListener("click", () => send());
 
   // 初始未聚焦：显示语音输入提示
-  if (!inputLocked) msgInput.placeholder = idlePlaceholder();
+  refreshInputPlaceholder();
 
   // ── 斜杠命令 ────────────────────────────────────────────────
   // 输入框以 "/" 开头时弹出命令菜单。ASR/TTS/LLM 直接打开对应设置面板；

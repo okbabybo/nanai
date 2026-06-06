@@ -539,14 +539,22 @@ function decodeProcessOutput(chunks) {
 
 function runProcess(file, args = [], cwd) {
   return new Promise((resolve) => {
+    const env = {
+      ...process.env,
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
+    }
+    if (!IS_WIN) {
+      const parts = String(env.PATH || '').split(':').filter(Boolean)
+      for (const dir of ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']) {
+        if (!parts.includes(dir)) parts.push(dir)
+      }
+      env.PATH = parts.join(':')
+    }
     const child = spawn(file, args, {
       cwd: cwd || paths.musicDir,
       windowsHide: true,
-      env: {
-        ...process.env,
-        PYTHONIOENCODING: 'utf-8',
-        PYTHONUTF8: '1',
-      },
+      env,
     })
     const stdoutChunks = []
     const stderrChunks = []
@@ -565,8 +573,10 @@ function runProcess(file, args = [], cwd) {
   })
 }
 
-const YTDLP_LOCAL = path.join(paths.musicDir, 'yt-dlp.exe')
-const YTDLP_URL   = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+const YTDLP_LOCAL = path.join(paths.musicDir, IS_WIN ? 'yt-dlp.exe' : 'yt-dlp')
+const YTDLP_URL = IS_WIN
+  ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
+  : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos'
 
 async function resolveYtDlp() {
   // 1. 系统 PATH 里有就直接用
@@ -579,7 +589,7 @@ async function resolveYtDlp() {
     if (local.code === 0) return YTDLP_LOCAL
   }
 
-  // 3. 自动下载 yt-dlp.exe 到 music 目录
+  // 3. 自动下载 yt-dlp 到 music 目录
   emitEvent('action', { tool: 'music', summary: 'yt-dlp 未安装，正在自动下载…', detail: YTDLP_URL })
   const res = await fetch(YTDLP_URL, { signal: AbortSignal.timeout(60000) })
   if (!res.ok) return null

@@ -137,7 +137,7 @@ const createConsole = () => `
   <div id="input-row">
     <div id="slash-menu" class="slash-menu" role="listbox" aria-label="命令" hidden></div>
     <span class="prompt-mark">▸</span>
-    <input id="msg-input" type="text" placeholder="向 Longma 发送消息…（输入 / 调出命令）" autocomplete="off">
+    <input id="msg-input" type="text" placeholder="按住空格键开始说话" autocomplete="off">
     <button id="send-btn" type="button">发送</button>
   </div>
 </section>
@@ -361,7 +361,7 @@ const createSettingsModal = () => `
         <!-- ── 语音 tab ── -->
         <div class="settings-tab" data-tab="voice">
           <div class="settings-section">
-            <div class="settings-section-label">云端模式配置</div>
+            <div class="settings-section-label">语音识别配置</div>
             <div class="settings-row">
               <label class="settings-label" for="voice-auto-key">粘贴 Key 自动识别厂商</label>
               <input class="settings-input" type="password" id="voice-auto-key" placeholder="阿里云 / 腾讯云 / 讯飞 / 火山豆包 ASR Key">
@@ -370,11 +370,22 @@ const createSettingsModal = () => `
             <div class="settings-row">
               <label class="settings-label" for="voice-provider-select">服务商</label>
               <select class="settings-select" id="voice-provider-select">
-                <option value="aliyun">阿里云百炼（推荐）</option>
+                <option value="macos-local">macOS 本地识别（优先）</option>
+                <option value="aliyun">阿里云百炼</option>
                 <option value="volcengine">火山引擎豆包 ASR</option>
                 <option value="tencent">腾讯云 ASR</option>
                 <option value="xunfei">科大讯飞 RTASR</option>
               </select>
+            </div>
+            <div id="voice-cred-macos-local">
+              <div class="settings-row">
+                <label class="settings-label" for="voice-macos-mode">本地识别模式</label>
+                <select class="settings-select" id="voice-macos-mode">
+                  <option value="on-device">优先离线本地</option>
+                  <option value="auto">本地不可用时使用系统识别</option>
+                  <option value="online">Apple 系统在线识别</option>
+                </select>
+              </div>
             </div>
             <div id="voice-cred-aliyun">
               <div class="settings-row">

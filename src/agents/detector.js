@@ -109,7 +109,7 @@ function probeClaudeCode() {
       available: true,
       version: parseVersion(version) || 'unknown',
       invokeType: 'cli',
-      invokeCmd: 'claude',
+      invokeCmd: cliPath,
       invokeArgs: ['-p', '{prompt}'],
       notes: `CLI: ${cliPath}`,
     }
@@ -133,11 +133,11 @@ function probeClaudeCode() {
   for (const dir of installDirs) {
     if (fs.existsSync(dir)) {
       return {
-        available: true,
+        available: false,
         version: 'desktop',
-        invokeType: 'cli',
-        invokeCmd: 'claude',
-        invokeArgs: ['-p', '{prompt}'],
+        invokeType: 'desktop',
+        invokeCmd: dir,
+        invokeArgs: [],
         notes: `Desktop app: ${dir}`,
       }
     }
@@ -147,11 +147,11 @@ function probeClaudeCode() {
   const claudeConfig = path.join(os.homedir(), '.claude')
   if (fs.existsSync(claudeConfig)) {
     return {
-      available: true,
+      available: false,
       version: 'config-only',
-      invokeType: 'cli',
-      invokeCmd: 'claude',
-      invokeArgs: ['-p', '{prompt}'],
+      invokeType: 'config',
+      invokeCmd: claudeConfig,
+      invokeArgs: [],
       notes: `Config dir: ${claudeConfig}`,
     }
   }
@@ -167,7 +167,7 @@ function probeCodex() {
       available: true,
       version: parseVersion(version) || 'unknown',
       invokeType: 'cli',
-      invokeCmd: 'codex',
+      invokeCmd: cliPath,
       invokeArgs: ['{prompt}'],
       notes: `CLI: ${cliPath}`,
     }
@@ -221,7 +221,7 @@ function probeHermes() {
     }
   }
 
-  // 检测 Ollama（Hermes 常跑在 Ollama 上，Windows 原生）
+  // 检测 Ollama（Hermes 常跑在本地 Ollama 上）
   const ollamaPath = findInPath('ollama')
   if (ollamaPath) {
     const models = tryExec('ollama list') || ''
@@ -234,7 +234,7 @@ function probeHermes() {
         invokeType: 'cli',
         invokeCmd: 'ollama',
         invokeArgs: ['run', modelName, '{prompt}'],
-        notes: `Ollama (Windows native) model=${modelName}`,
+        notes: `Ollama local (${process.platform}) model=${modelName}`,
       }
     }
   }

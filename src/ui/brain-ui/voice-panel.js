@@ -1,5 +1,5 @@
-// 声波点云球 + 云端 ASR 语音输入面板
-// 云端 ASR（阿里云/腾讯云/讯飞），通过后端 WebSocket 代理
+// 声波点云球 + 语音识别输入面板
+// macOS 优先使用本地 Speech.framework；云端 ASR 仍可在设置中选择。
 //
 // 点云算法移植自 ACUI (Remix)/Voice Component.html
 
@@ -81,9 +81,14 @@ const SOUND_EVENT_ICONS = {
   knock_door:      '🚪',
 };
 
-const CLOUD_WS_URL  = 'ws://127.0.0.1:3721/voice/cloud';
 const VOICE_THRESHOLD_KEY = 'bailongma-voice-threshold';
 const VOICE_PROVIDER_KEY = 'bailongma-voice-provider';
+
+function voiceWsUrl(provider = '') {
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const path = provider === 'macos-local' ? '/voice/local' : '/voice/cloud';
+  return `${proto}//${window.location.host}${path}`;
+}
 
 // 从 localStorage 读取灵敏度阈值，支持运行时动态修改
 function getVoiceThreshold() {
@@ -385,13 +390,13 @@ export function initVoicePanel({
 
   function connectCloudWs() {
     cloudWsIntentional = false; // 新连接建立时清除上一次主动关闭的标记
-    const ws = new WebSocket(CLOUD_WS_URL);
+    const provider = localStorage.getItem(VOICE_PROVIDER_KEY) || 'macos-local';
+    const ws = new WebSocket(voiceWsUrl(provider));
     ws.binaryType = 'arraybuffer';
     cloudWs = ws;
 
     ws.onopen = () => {
       if (cloudWs !== ws) return;
-      const provider = localStorage.getItem(VOICE_PROVIDER_KEY) || 'aliyun';
       const lang = getLang?.()?.split('-')[0] || 'zh';
       ws.send(JSON.stringify({ type: 'config', provider, lang }));
       setStatus('listening');
@@ -419,7 +424,9 @@ export function initVoicePanel({
           scheduleAutoSend();
         } else if (msg.type === 'error') {
           setStatus('error');
-          if (transcript) transcript.textContent = msg.message || '云端识别错误';
+          if (transcript) transcript.textContent = msg.message || '语音识别错误';
+        } else if (msg.type === 'status' && msg.message) {
+          if (transcript && !lastTranscriptText) transcript.textContent = msg.message;
         }
       } catch {}
     };
@@ -570,12 +577,12 @@ export function initVoicePanel({
 
       accumulatedText = '';
       if (transcript) transcript.textContent = '';
-      const bargeinWs = new WebSocket(CLOUD_WS_URL);
+      const provider = localStorage.getItem(VOICE_PROVIDER_KEY) || 'macos-local';
+      const bargeinWs = new WebSocket(voiceWsUrl(provider));
       bargeinWs.binaryType = 'arraybuffer';
       cloudWs = bargeinWs;
       bargeinWs.onopen = () => {
         if (cloudWs !== bargeinWs) return;
-        const provider = localStorage.getItem(VOICE_PROVIDER_KEY) || 'aliyun';
         const lang = getLang?.()?.split('-')[0] || 'zh';
         bargeinWs.send(JSON.stringify({ type: 'config', provider, lang }));
         // 先把预缓冲的历史音频一次性发出，补回打断前说的内容
@@ -608,7 +615,9 @@ export function initVoicePanel({
             scheduleAutoSend();
           } else if (msg.type === 'error') {
             setStatus('error');
-            if (transcript) transcript.textContent = msg.message || '云端识别错误';
+            if (transcript) transcript.textContent = msg.message || '语音识别错误';
+          } else if (msg.type === 'status' && msg.message) {
+            if (transcript && !lastTranscriptText) transcript.textContent = msg.message;
           }
         } catch {}
       };

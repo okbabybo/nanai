@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { spawn } from 'child_process'
 import { nowTimestamp } from '../time.js'
 import { normalizeConversationPartyId, upsertPrefetchTask, removePrefetchTask, listPrefetchTasks, insertConversation, setConfig as dbSetConfig, markConversationOpenQuestion, findRecentJarvisDuplicate } from '../db.js'
 import { emitEvent, emitUICommand, hasACUIClient, addActiveUICard, setStickyEvent } from '../events.js'
@@ -47,6 +48,16 @@ export function detectOpenFollowupQuestion(text = '') {
   const segs = s.split(/[。!！\n]+/).filter(Boolean)
   const lastSeg = segs[segs.length - 1] || s
   return FOLLOWUP_VERB_RE.test(lastSeg) || FOLLOWUP_EN_RE.test(lastSeg)
+}
+
+function childProcessEnv() {
+  if (process.platform === 'win32') return process.env
+  const extra = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
+  const parts = String(process.env.PATH || '').split(':').filter(Boolean)
+  for (const dir of extra) {
+    if (!parts.includes(dir)) parts.push(dir)
+  }
+  return { ...process.env, PATH: parts.join(':') }
 }
 
 // 工具执行器：根据工具名和参数执行对应操作，返回结果字符串
@@ -676,6 +687,71 @@ function agentDocsHint(agent) {
   return hint
 }
 
+function runAgentCli(agent, fullPrompt, timeoutSec) {
+  return new Promise((resolve) => {
+    const args = (agent.invokeArgs || []).map(arg => arg === '{prompt}' ? fullPrompt : String(arg))
+    const child = spawn(agent.invoke_cmd, args, {
+      shell: false,
+      detached: process.platform !== 'win32',
+      env: childProcessEnv(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (payload) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolve(toolJson(payload))
+    }
+    const timer = setTimeout(() => {
+      try {
+        if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGTERM')
+        else child.kill('SIGTERM')
+      } catch {
+        try { child.kill('SIGTERM') } catch {}
+      }
+      finish({
+        ok: false,
+        tool: 'delegate_to_agent',
+        agent_id: agent.id,
+        agent_name: agent.name,
+        error: `Agent CLI timed out after ${timeoutSec}s`,
+        stdout: stdout.slice(0, 4000),
+        stderr: stderr.slice(0, 2000),
+      })
+    }, timeoutSec * 1000)
+    timer.unref?.()
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
+    child.stdout?.on('data', chunk => { stdout += chunk })
+    child.stderr?.on('data', chunk => { stderr += chunk })
+    child.on('error', err => {
+      finish({
+        ok: false,
+        tool: 'delegate_to_agent',
+        agent_id: agent.id,
+        agent_name: agent.name,
+        error: err.message,
+        ...agentDocsHint(agent),
+      })
+    })
+    child.on('close', code => {
+      finish({
+        ok: code === 0,
+        tool: 'delegate_to_agent',
+        agent_id: agent.id,
+        agent_name: agent.name,
+        exit_code: code,
+        stdout: stdout.slice(0, 8000),
+        stderr: stderr.slice(0, 4000),
+        ...(code === 0 ? {} : agentDocsHint(agent)),
+      })
+    })
+  })
+}
+
 async function execDelegateToAgent({ agent_id, prompt: agentPrompt, context: agentContext = '', timeout = 60 }) {
   if (!isDelegationAllowed()) {
     return toolJson({ ok: false, error: '尚未获得 Agent 委托权限，请先询问用户并通过 grant_agent_delegation 获取授权。' })
@@ -700,18 +776,7 @@ async function execDelegateToAgent({ agent_id, prompt: agentPrompt, context: age
   const timeoutSec = Math.min(Math.max(Number(timeout) || 60, 5), 300)
 
   if (agent.invoke_type === 'cli') {
-    const safePrompt = fullPrompt.replace(/"/g, '\\"').replace(/\n/g, ' ')
-    const cmdArgs = (agent.invokeArgs || []).map(a => a === '{prompt}' ? `"${safePrompt}"` : a).join(' ')
-    const cmd = `${agent.invoke_cmd} ${cmdArgs}`
-    const result = await execCommand({ command: cmd, timeout: timeoutSec, background: false }, {})
-    // CLI 调用失败时注入文档引导
-    try {
-      const parsed = typeof result === 'string' ? JSON.parse(result) : result
-      if (parsed?.ok === false || (parsed?.exit_code !== undefined && parsed.exit_code !== 0)) {
-        return toolJson({ ...parsed, ...agentDocsHint(agent) })
-      }
-    } catch { /* result 不是 JSON，直接返回 */ }
-    return result
+    return await runAgentCli(agent, fullPrompt, timeoutSec)
   }
 
   if (agent.invoke_type === 'http') {

@@ -54,8 +54,8 @@ function openChat(...args) { return chat?.openChat(...args); }
 function updateLastJarvisMsg(...args) { return chat?.updateLastJarvisMsg(...args); }
 function isTyping() { return chat?.isTyping() || false; }
 
-function defaultInputPlaceholder() {
-  return `向 ${agentName} 发消息…`;
+function defaultInputPlaceholder(focused = false) {
+  return focused ? `向${agentName} 发消息` : "按住空格键开始说话";
 }
 
 function clampZoomFactor(factor) {
@@ -147,7 +147,7 @@ function setAgentName(nextName) {
   if (brandNameEl) brandNameEl.textContent = `${normalized} AI Agent`;
   if (graphEl) graphEl.setAttribute("aria-label", `${normalized} memory graph`);
   const input = document.getElementById("msg-input");
-  if (input && !chat?.isComposerLocked?.() && document.activeElement === input) input.placeholder = defaultInputPlaceholder();
+  if (input && !chat?.isComposerLocked?.()) input.placeholder = defaultInputPlaceholder(document.activeElement === input);
   document.querySelectorAll(".msg-jarvis .msg-label").forEach((el) => {
     el.textContent = normalized;
   });
@@ -2272,6 +2272,7 @@ function initTTSSettings() {
 
   function applyVoiceProviderUI(provider) {
     const panels = {
+      "macos-local": "voice-cred-macos-local",
       aliyun: "voice-cred-aliyun",
       volcengine: "voice-cred-volcengine",
       tencent: "voice-cred-tencent",
@@ -2343,13 +2344,15 @@ function initTTSSettings() {
     if (voiceThreshSlider) voiceThreshSlider.value = String(savedThresh);
     if (voiceThreshVal)    voiceThreshVal.textContent = savedThresh.toFixed(3);
 
-    let savedProvider = localStorage.getItem(VOICE_PROVIDER_KEY) || "aliyun";
+    let savedProvider = localStorage.getItem(VOICE_PROVIDER_KEY) || "macos-local";
     try {
-      const resp = await fetch("http://127.0.0.1:3721/settings/voice");
+      const resp = await fetch("/settings/voice");
       const data = await resp.json().catch(() => ({}));
       if (resp.ok && data?.voice?.voiceProvider) {
         savedProvider = data.voice.voiceProvider;
         localStorage.setItem(VOICE_PROVIDER_KEY, savedProvider);
+        const macosMode = document.getElementById("voice-macos-mode");
+        if (macosMode && data.voice.macosRecognitionMode) macosMode.value = data.voice.macosRecognitionMode;
       }
     } catch {}
     if (voiceProviderSelect) voiceProviderSelect.value = savedProvider;
@@ -2369,7 +2372,7 @@ function initTTSSettings() {
       const autoSend  = document.getElementById("voice-auto-send")?.checked ?? true;
       const autoMic   = document.getElementById("voice-auto-mic")?.checked ?? false;
       const threshold = parseFloat(voiceThreshSlider?.value ?? "0.008");
-      const provider  = voiceProviderSelect?.value || "aliyun";
+      const provider  = voiceProviderSelect?.value || "macos-local";
 
       localStorage.setItem(VOICE_LANG_KEY,      lang);
       localStorage.setItem(VOICE_AUTO_SEND_KEY,  String(autoSend));
@@ -2379,7 +2382,9 @@ function initTTSSettings() {
 
       window.dispatchEvent(new CustomEvent("bailongma:voice-threshold", { detail: { threshold } }));
 
-      const body = { voiceProvider: provider };
+      const body = { voiceProvider: provider, lang };
+      const macosMode = document.getElementById("voice-macos-mode")?.value;
+      if (macosMode) body.macosRecognitionMode = macosMode;
       const aliyunKey = document.getElementById("voice-aliyun-key")?.value?.trim();
       if (aliyunKey) body.aliyunApiKey = aliyunKey;
       const tencentSid = document.getElementById("voice-tencent-sid")?.value?.trim();
@@ -2404,7 +2409,7 @@ function initTTSSettings() {
       if (Object.keys(body).length > 0) {
         try {
           saveVoiceBtn.disabled = true;
-          const resp = await fetch("http://127.0.0.1:3721/settings/voice", {
+          const resp = await fetch("/settings/voice", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),

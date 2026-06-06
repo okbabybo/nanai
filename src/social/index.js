@@ -52,3 +52,14 @@ export async function restartConnector(platform, { pushMessage, emitEvent } = {}
     emitEvent?.('social_status', { status: 'start_error', platform, error: error.message })
   }
 }
+
+export async function stopSocialConnectors() {
+  for (const [platform, connector] of running.entries()) {
+    try {
+      await connector.stop?.()
+    } catch (error) {
+      console.warn(`[social] ${platform} connector failed to stop: ${error.message}`)
+    }
+    running.delete(platform)
+  }
+}

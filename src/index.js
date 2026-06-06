@@ -6,7 +6,7 @@ import { runInjector, formatMemoriesForPrompt, formatTaskKnowledge, formatPrefet
 import { updateFocusFrame } from './memory/focus.js'
 import { compressPoppedFrame } from './memory/focus-compress.js'
 import { runMemoryRefreshLoop } from './memory/refresh-loop.js'
-import { startConsolidationLoop } from './memory/consolidation-loop.js'
+import { startConsolidationLoop, stopConsolidationLoop } from './memory/consolidation-loop.js'
 import { runRuntimeInjector } from './context/runtime-injector.js'
 import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, saveFocusStack, setCurrentFocusTopic, updateUserMessageFocusTopic, insertActionLog } from './db.js'
 import { calculateNextDueAt, autoSpeakForVoiceReply, detectOpenFollowupQuestion } from './capabilities/executor.js'
@@ -18,14 +18,14 @@ import { formatTick, nowTimestamp, describeExistence } from './time.js'
 import { getAdaptiveTickInterval, getQuotaStatus, setRateLimited, isRateLimited, getTickInterval } from './quota.js'
 import { registerProvider } from './providers/registry.js'
 import { MinimaxProvider } from './providers/minimax.js'
-import { isRunning, setScheduler } from './control.js'
+import { isRunning, setScheduler, stopLoop } from './control.js'
 import { getCustomIntervalMs, consumeTick as consumeTickerTick, getStatus as getTickerStatus } from './ticker.js'
 import { seedSandboxOnce, seedMusicOnce, rescueDataFromInstallDir } from './paths.js'
 import { ensureSkillMemories } from './memory/seed-skills.js'
 import { loadInstalledTools } from './capabilities/marketplace/index.js'
 import { resumePendingVideoJobs, getAIVideoPanelState } from './capabilities/tools/media.js'
 import { dispatchSocialMessage } from './social/dispatch.js'
-import { startSocialConnectors } from './social/index.js'
+import { startSocialConnectors, stopSocialConnectors } from './social/index.js'
 import { getWeatherCardProps, isWeatherQuery } from './weather.js'
 import { collectSystemInfo, getSystemInfoBlock, getBatteryBlock, getDesktopPath } from './system-info.js'
 import { collectDesktopInfo, getDesktopBlock } from './desktop-scanner.js'
@@ -38,6 +38,7 @@ import { tryAutoConfigureKey } from './key-auto-config.js'
 import { PRIMARY_USER_ID, formatPresenceForPrompt, normalizeChannel } from './identity.js'
 import { truncateToolResultForUI } from './runtime/tool-result-preview.js'
 import { buildLLMMessages } from './runtime/messages.js'
+import { killAllProcesses } from './capabilities/tools/shell.js'
 
 // On first launch, copy sandbox seed files from the resource directory to the user data directory (Electron install)
 seedSandboxOnce()
@@ -88,6 +89,8 @@ await loadInstalledTools()
 // AbortController for the current LLM call (used to interrupt the main loop)
 let currentAbortController = null
 let currentExecution = null
+let apiHandle = null
+let shutdownStarted = false
 
 // Watchdog：单轮 runTurn 超过这个时间未返回视为卡死（最可能是 fetch/LLM stream/三方网络调用
 // 没传 AbortSignal 也没自己超时）。触发后强 abort，把 processing 清掉，主循环能继续
@@ -1516,7 +1519,7 @@ async function main() {
 
   // Start HTTP API — must start regardless of activation status; the activation page depends on it
   const apiPort = Number(process.env.BAILONGMA_PORT) || 3721
-  startAPI(apiPort, {
+  apiHandle = startAPI(apiPort, {
     getStateSnapshot: () => ({
       action: state.action,
       task: state.task,
@@ -1553,3 +1556,20 @@ async function main() {
 }
 
 main()
+
+export async function shutdownBackend(reason = 'shutdown') {
+  if (shutdownStarted) return
+  shutdownStarted = true
+  console.log(`[system] Shutting down backend: ${reason}`)
+  try { stopLoop() } catch {}
+  if (currentTimer) { clearTimeout(currentTimer); currentTimer = null }
+  try { currentAbortController?.abort?.(reason) } catch {}
+  currentAbortController = null
+  currentExecution = null
+  try { stopConsolidationLoop() } catch {}
+  try { killAllProcesses() } catch {}
+  try { await stopSocialConnectors() } catch {}
+  try { await apiHandle?.close?.() } catch (err) { console.warn('[system] API shutdown failed:', err.message) }
+  apiHandle = null
+  try { getDB().close() } catch {}
+}

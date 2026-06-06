@@ -2,8 +2,10 @@ import fs from 'fs'
 import path from 'path'
 import { execSync, execFileSync } from 'child_process'
 import { paths } from '../../paths.js'
+import { isDangerousShellCommand } from '../tool-policy.js'
 
 const IS_WIN = process.platform === 'win32'
+const EXTRA_PATH_DIRS = ['/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin']
 
 const TOOLS_DIR = path.join(paths.sandboxDir, 'installed_tools')
 
@@ -29,6 +31,15 @@ function ensureToolsDir() {
   fs.mkdirSync(TOOLS_DIR, { recursive: true })
 }
 
+function helperEnv() {
+  if (IS_WIN) return process.env
+  const parts = String(process.env.PATH || '').split(':').filter(Boolean)
+  for (const dir of EXTRA_PATH_DIRS) {
+    if (!parts.includes(dir)) parts.push(dir)
+  }
+  return { ...process.env, PATH: parts.join(':') }
+}
+
 function buildSchema(name, description, parameters) {
   return {
     type: 'function',
@@ -43,11 +54,15 @@ function buildHelpers() {
 
     exec: (command, opts = {}) => {
       try {
+        const reasons = isDangerousShellCommand(command)
+        if (reasons.length) return `Error: ${reasons.join('; ')}`
         const execOpts = {
           encoding: 'utf-8',
           timeout: opts.timeout ?? 30_000,
           maxBuffer: 2 * 1024 * 1024,
           windowsHide: true,
+          cwd: paths.sandboxDir,
+          env: helperEnv(),
         }
         if (IS_WIN) {
           // 走 PowerShell 显式调用，并三层同步 UTF-8 编码（chcp + OutputEncoding + InputEncoding），

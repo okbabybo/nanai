@@ -18,6 +18,26 @@ const BG_MAX_ENTRIES = 50
 const FG_BUFFER_MAX = 512 * 1024
 
 const IS_WIN = process.platform === 'win32'
+const EXTRA_PATH_DIRS = [
+  '/opt/homebrew/bin',
+  '/usr/local/bin',
+  '/usr/bin',
+  '/bin',
+  '/usr/sbin',
+  '/sbin',
+  path.join(process.env.HOME || '', '.local', 'bin'),
+  path.join(process.env.HOME || '', 'bin'),
+].filter(Boolean)
+
+function commandEnv() {
+  if (IS_WIN) return process.env
+  const existing = String(process.env.PATH || '')
+  const parts = existing.split(':').filter(Boolean)
+  for (const dir of EXTRA_PATH_DIRS) {
+    if (!parts.includes(dir)) parts.push(dir)
+  }
+  return { ...process.env, PATH: parts.join(':') }
+}
 
 /**
  * 跨平台 spawn shell 命令，确保中文输出不乱码。
@@ -61,7 +81,7 @@ function spawnShellCommand(command, opts = {}) {
     ].join('\n')
     return spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-Command', wrapped], opts)
   }
-  return spawn(command, { ...opts, shell: true })
+  return spawn(command, { ...opts, shell: true, env: opts.env || commandEnv() })
 }
 
 function resolveExecCwd(cwdArg) {
@@ -180,7 +200,7 @@ function terminateProcessTree(child, pid = child?.pid) {
     }
   }
   try {
-    child?.kill?.()
+    try { process.kill(-pid, 'SIGTERM') } catch { child?.kill?.('SIGTERM') }
     return { ok: true }
   } catch (err) {
     return { ok: false, error: err.message }
@@ -201,13 +221,17 @@ export function getCommandFailureHint(command = '', stderr = '', stdout = '') {
     return 'This failed because you tried to write file content through the shell, and PowerShell mangled the quotes/$/backticks/triple-quotes in the content. Do NOT retry with different escaping. Use the write_file tool instead: pass { path, content } with the full file body verbatim — it writes natively (no escaping), creates parent dirs, and verifies the result. write_file accepts an absolute path (e.g. D:\\desktop\\rc-car.html) when the file sandbox is disabled.'
   }
   if (/\bssh\b/i.test(command) && /syntax error:\s*unexpected end of file/i.test(text)) {
-    return 'The remote shell command reached bash with broken quoting or an unfinished block. Do not retry the same SSH command. Simplify the remote command, avoid multiline nested quotes from PowerShell, or pass a small bash -lc script with carefully escaped single quotes.'
+    return IS_WIN
+      ? 'The remote shell command reached bash with broken quoting or an unfinished block. Do not retry the same SSH command. Simplify the remote command, avoid multiline nested quotes from PowerShell, or pass a small bash -lc script with carefully escaped single quotes.'
+      : 'The remote shell command reached bash with broken quoting or an unfinished block. Do not retry the same SSH command. Simplify the remote command or pass a small bash -lc script with carefully escaped single quotes.'
   }
   if (/\bssh\b/i.test(command) && /unexpected EOF while looking for matching/i.test(text)) {
     return 'SSH itself likely connected, but the remote command quoting was unbalanced. Fix the quote escaping before retrying; this is not evidence that the server service is down.'
   }
   if (/The string is missing the terminator/i.test(text)) {
-    return 'Local PowerShell rejected the command before it reached the target. Fix local quote escaping; avoid multiline remote shell snippets inside a single PowerShell command.'
+    return IS_WIN
+      ? 'Local PowerShell rejected the command before it reached the target. Fix local quote escaping; avoid multiline remote shell snippets inside a single PowerShell command.'
+      : 'The local shell rejected the command before it reached the target. Fix quote escaping; avoid multiline remote shell snippets inside one command string.'
   }
   return null
 }
@@ -322,9 +346,10 @@ function pruneBackgroundProcesses() {
 function execBackground(command, execCwd) {
   const child = spawnShellCommand(command, {
     cwd: execCwd,
-    detached: false,
+    detached: !IS_WIN,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
+  if (!IS_WIN) child.unref?.()
   child.stdout?.setEncoding('utf8')
   child.stderr?.setEncoding('utf8')
 
@@ -356,7 +381,7 @@ function execBackground(command, execCwd) {
 function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground = false) {
   return new Promise((resolve) => {
     throwIfAborted(signal)
-    const child = spawnShellCommand(command, { cwd: execCwd })
+    const child = spawnShellCommand(command, { cwd: execCwd, detached: !IS_WIN })
     child.stdout?.setEncoding('utf8')
     child.stderr?.setEncoding('utf8')
 
@@ -540,4 +565,14 @@ export async function execListProcesses(args = {}) {
     count: processes.length,
     processes,
   })
+}
+
+export function killAllProcesses() {
+  const results = []
+  for (const [pid, entry] of bgProcesses.entries()) {
+    const stopped = terminateProcessTree(entry.process, pid)
+    bgProcesses.delete(pid)
+    results.push({ pid, command: entry.command, ...stopped })
+  }
+  return results
 }

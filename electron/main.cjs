@@ -11,7 +11,7 @@ const fs = require('fs')
 const net = require('net')
 const http = require('http')
 const { EventEmitter } = require('events')
-const { pathToFileURL } = require('url')
+const { pathToFileURL, fileURLToPath } = require('url')
 const { autoUpdater } = require('electron-updater')
 
 const IS_DEV = !app.isPackaged
@@ -20,6 +20,7 @@ const USER_DIR = app.getPath('userData')
 const CODE_ROOT = app.getAppPath()
 const RESOURCE_ROOT = CODE_ROOT
 const BACKEND_ENTRY = path.join(CODE_ROOT, 'src', 'index.js')
+const APP_ICON = path.join(RESOURCE_ROOT, 'build', process.platform === 'win32' ? 'icon.ico' : 'icon.png')
 
 // 持久化日志：把 console.* 镜像到 USER_DIR/logs/bailongma.log，
 // 安装版没有 stdout 的情况下，卡死/崩溃后还能 tail 这个文件复盘。
@@ -78,17 +79,38 @@ let mainWindow = null
 let backendPort = 0
 let tray = null
 let focusBannerWindow = null
+let backendHandle = null
+let shuttingDown = false
 
 // 后端通过 global.focusBannerBridge 控制横幅窗口
 const focusBannerBridge = new EventEmitter()
 global.focusBannerBridge = focusBannerBridge
 global.bailongmaAppControl = {
-  restart() {
+  async restart() {
     console.log('[main] restart requested')
-    app.isQuiting = true
-    app.relaunch()
-    app.quit()
+    await shutdownApp('restart', { relaunch: true })
   },
+}
+
+async function shutdownApp(reason = 'quit', { relaunch = false, exit = true } = {}) {
+  if (shuttingDown) return
+  shuttingDown = true
+  app.isQuiting = true
+  console.log(`[main] shutdown requested: ${reason}`)
+  try {
+    await Promise.race([
+      backendHandle?.shutdownBackend?.(reason),
+      new Promise(resolve => setTimeout(resolve, 3500)),
+    ])
+  } catch (err) {
+    console.warn('[main] backend shutdown failed:', err.message)
+  }
+  try { focusBannerWindow?.close?.() } catch {}
+  try { mainWindow?.close?.() } catch {}
+  try { tray?.destroy?.() } catch {}
+  tray = null
+  if (relaunch) app.relaunch()
+  if (exit) app.exit(0)
 }
 
 if (process.platform === 'win32') {
@@ -103,11 +125,66 @@ function sendUpdaterStatus(payload = {}) {
   })
 }
 
+function isTrustedLocalAppUrl(rawUrl = '') {
+  try {
+    const parsed = new URL(rawUrl)
+    if (parsed.protocol === 'file:') {
+      return path.normalize(fileURLToPath(parsed)) === path.normalize(path.join(RESOURCE_ROOT, 'focus-banner.html'))
+    }
+    return ['127.0.0.1', 'localhost', '::1'].includes(parsed.hostname)
+      && Number(parsed.port) === Number(backendPort)
+  } catch {
+    return false
+  }
+}
+
+function installMediaPermissionHandler(session) {
+  session.setPermissionRequestHandler((webContents, permission, callback, details = {}) => {
+    if (permission !== 'media') return callback(false)
+    const url = details.requestingUrl || webContents.getURL()
+    callback(isTrustedLocalAppUrl(url))
+  })
+  session.setPermissionCheckHandler((webContents, permission, requestingOrigin) => {
+    if (permission !== 'media') return false
+    return isTrustedLocalAppUrl(requestingOrigin || webContents.getURL())
+  })
+}
+
+function setupApplicationMenu() {
+  if (process.platform !== 'darwin') {
+    Menu.setApplicationMenu(null)
+    return
+  }
+  const template = [
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        {
+          label: 'Quit Bailongma',
+          accelerator: 'Command+Q',
+          click: () => {
+            shutdownApp('menu quit').catch(() => app.exit(0))
+          },
+        },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'windowMenu' },
+  ]
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
 async function bootstrapBackend(port) {
   process.env.BAILONGMA_USER_DIR ||= USER_DIR
   process.env.BAILONGMA_RESOURCES_DIR ||= RESOURCE_ROOT
   process.env.BAILONGMA_PORT = String(port)
-  await import(pathToFileURL(BACKEND_ENTRY).href)
+  backendHandle = await import(pathToFileURL(BACKEND_ENTRY).href)
 }
 
 const gotLock = app.requestSingleInstanceLock()
@@ -167,7 +244,7 @@ async function createWindow() {
     minHeight: 600,
     backgroundColor: '#0b0b0e',
     title: 'Bailongma',
-    icon: path.join(RESOURCE_ROOT, 'build', 'icon.png'),
+    icon: APP_ICON,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
@@ -175,15 +252,7 @@ async function createWindow() {
     },
   })
 
-  // 授予麦克风权限（语音输入需要）
-  mainWindow.webContents.session.setPermissionRequestHandler((webContents, permission, callback) => {
-    if (permission === 'media') return callback(true)
-    callback(false)
-  })
-  mainWindow.webContents.session.setPermissionCheckHandler((webContents, permission) => {
-    if (permission === 'media') return true
-    return false
-  })
+  installMediaPermissionHandler(mainWindow.webContents.session)
 
   // 窗口级快捷键（不用 globalShortcut，避免劫持其他应用的 F11/Ctrl+R 等）
   //   F12      → 切换 DevTools
@@ -217,9 +286,10 @@ async function createWindow() {
   })
 
   await mainWindow.loadURL(`http://127.0.0.1:${backendPort}/`)
-  // 关闭主窗口时最小化到托盘，不退出
+  // Windows/Linux 关闭主窗口时最小化到托盘；macOS 关闭红灯则销毁窗口，
+  // Dock/Menu Bar 再次激活时重建，避免隐藏窗口残留黑屏。
   mainWindow.on('close', (e) => {
-    if (!app.isQuiting) {
+    if (!app.isQuiting && process.platform !== 'darwin') {
       e.preventDefault()
       mainWindow.hide()
     }
@@ -231,37 +301,37 @@ async function createWindow() {
 }
 
 function setupTray() {
-  const iconPath = path.join(RESOURCE_ROOT, 'build', 'icon.ico')
-  tray = new Tray(nativeImage.createFromPath(iconPath))
+  const trayImage = nativeImage.createFromPath(APP_ICON)
+  if (process.platform === 'darwin') trayImage.setTemplateImage(true)
+  tray = new Tray(trayImage)
   tray.setToolTip('Bailongma')
 
   const contextMenu = Menu.buildFromTemplate([
     {
       label: '显示主界面',
-      click: () => {
-        if (mainWindow) {
-          mainWindow.show()
-          mainWindow.focus()
-        }
-      },
+      click: () => { showMainWindow().catch(() => {}) },
     },
     { type: 'separator' },
     {
       label: '退出',
       click: () => {
-        app.isQuiting = true
-        app.quit()
+        shutdownApp('tray quit').catch(() => app.exit(0))
       },
     },
   ])
 
   tray.setContextMenu(contextMenu)
-  tray.on('double-click', () => {
-    if (mainWindow) {
-      mainWindow.show()
-      mainWindow.focus()
-    }
-  })
+  tray.on('double-click', () => { showMainWindow().catch(() => {}) })
+  if (process.platform === 'darwin') tray.on('click', () => { showMainWindow().catch(() => {}) })
+}
+
+async function showMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    await createWindow()
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  if (!mainWindow.isVisible()) mainWindow.show()
+  mainWindow.focus()
 }
 
 function createFocusBannerWindow({ task = '', current_step = '', tasks = [] } = {}) {
@@ -293,17 +363,9 @@ function createFocusBannerWindow({ task = '', current_step = '', tasks = [] } = 
     },
   })
 
-  // 给 banner 窗口的 session 也授权麦克风
-  focusBannerWindow.webContents.session.setPermissionRequestHandler((wc, permission, callback) => {
-    if (permission === 'media') return callback(true)
-    callback(false)
-  })
-  focusBannerWindow.webContents.session.setPermissionCheckHandler((wc, permission) => {
-    if (permission === 'media') return true
-    return false
-  })
+  installMediaPermissionHandler(focusBannerWindow.webContents.session)
 
-  focusBannerWindow.loadFile(path.join(RESOURCE_ROOT, 'focus-banner.html'))
+  focusBannerWindow.loadURL(`http://127.0.0.1:${backendPort}/focus-banner.html`)
 
   focusBannerWindow.webContents.once('did-finish-load', () => {
     if (!focusBannerWindow || focusBannerWindow.isDestroyed()) return
@@ -442,15 +504,26 @@ ipcMain.handle('updater:start-download', async () => {
   }
 })
 
-ipcMain.handle('updater:quit-and-install', () => {
+ipcMain.handle('updater:quit-and-install', async () => {
+  await shutdownApp('quit and install', { exit: false })
   autoUpdater.quitAndInstall()
 })
 
 app.on('second-instance', () => {
-  if (!mainWindow) return
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  if (!mainWindow.isVisible()) mainWindow.show()
-  mainWindow.focus()
+  if (!backendPort) return
+  showMainWindow().catch(() => {})
+})
+
+app.on('activate', () => {
+  if (!backendPort) return
+  showMainWindow().catch(() => {})
+})
+
+app.on('before-quit', (event) => {
+  if (app.isQuiting) return
+  event.preventDefault()
+  app.isQuiting = true
+  shutdownApp('before-quit').catch(() => app.exit(0))
 })
 
 app.on('window-all-closed', () => {
@@ -459,7 +532,7 @@ app.on('window-all-closed', () => {
 })
 
 app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null)
+  setupApplicationMenu()
 
   try {
     backendPort = await findFreePort(3721)

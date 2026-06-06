@@ -30,12 +30,14 @@ async function tick() {
 
 let started = false
 let timer = null
+let startTimer = null
 
 export function startConsolidationLoop() {
   if (started) return
   started = true
   // 启动后等 5 分钟再跑第一次，避免和启动自检挤
-  setTimeout(() => {
+  startTimer = setTimeout(() => {
+    startTimer = null
     tick()
     timer = setInterval(tick, RUN_INTERVAL_MS)
   }, 5 * 60 * 1000)
@@ -43,6 +45,7 @@ export function startConsolidationLoop() {
 }
 
 export function stopConsolidationLoop() {
+  if (startTimer) { clearTimeout(startTimer); startTimer = null }
   if (timer) { clearInterval(timer); timer = null }
   started = false
 }

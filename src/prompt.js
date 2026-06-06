@@ -38,6 +38,24 @@ function formatSandboxRuntimeStatus(security = null) {
   return `Sandbox Status:\n- ${fileLine}\n- ${execLine}\n${changedLine}`
 }
 
+function executionEnvironmentBlock(security) {
+  const sandbox = security?.execSandbox !== false
+    ? 'ENABLED — commands run inside sandbox/, absolute paths and home-directory references are blocked.'
+    : 'DISABLED — commands can access the full filesystem including Desktop, user profile, and absolute paths.'
+  if (process.platform === 'darwin') {
+    return `Platform: macOS. Shell for exec_command: /bin/sh with POSIX syntax.
+Use macOS/POSIX commands such as ls, find, grep, sed, awk, cat, mkdir -p, rm, open, osascript, sw_vers, pmset, and launchctl. Do not use PowerShell, cmd.exe, Windows paths, registry commands, or Windows environment syntax.
+exec_command sandbox: ${sandbox}`
+  }
+  if (process.platform === 'win32') {
+    return `Platform: Windows. Shell for exec_command: PowerShell.
+exec_command sandbox: ${sandbox}`
+  }
+  return `Platform: Linux. Shell for exec_command: /bin/sh with POSIX syntax.
+Use Linux/POSIX commands such as ls, find, grep, sed, awk, cat, mkdir -p, rm, xdg-open, systemctl, and journalctl. Do not use PowerShell, cmd.exe, Windows paths, registry commands, or Windows environment syntax.
+exec_command sandbox: ${sandbox}`
+}
+
 
 // =============================================================================
 // buildSystemPrompt — returns the STABLE part of the prompt that ideally
@@ -211,7 +229,7 @@ export function buildSystemPrompt({
   agentName = '小白龙',
   persona = '',
   existenceDesc = 'just awakened',
-  security: _security = null,
+  security = null,
   systemEnv = '',
   userMessage = '',
   // Wave 2 新增：场景规则段按需注入用的"信号位"。任何字段未传 / 缺失 → gate 视为未命中，
@@ -352,7 +370,7 @@ When the user's message is unclear, incomplete, or has multiple plausible interp
 ## Self-Sufficient Execution
 You run on the user's own machine. Their local resources are your resources — treat them as already-available context, not as things the user has to hand to you. Common ones:
 - SSH: ~/.ssh/ (keys), ~/.ssh/config (host aliases, default users), ~/.ssh/known_hosts (servers seen before)
-- Shell history: ~/.bash_history, ~/.zsh_history, PowerShell history file (recent commands often hold the answer)
+- Shell history: on macOS/Linux, ~/.zsh_history and ~/.bash_history; on Windows, PowerShell history (recent commands often hold the answer)
 - Project files in the current cwd: README, package.json scripts, .env, docker-compose, CI configs
 - Git: git log / git remote / git config (recent work, remote URLs, user email)
 - Your own memory and prior tool results from this same session
@@ -376,8 +394,7 @@ This is L1 behavior, not L2. L1 (user present, single turn) is not a passive que
 - Do not repeat summaries, do not ping just to prove you exist, and do not become annoying.
 
 ## Execution Environment
-Platform: Windows. Shell for exec_command: PowerShell.
-Sandbox status is injected every turn in <context><runtime> as "Sandbox Status". Treat that runtime status as authoritative.
+${executionEnvironmentBlock(security)}
 
 ## Tool Usage Reminders
 - For multi-step work, keep a light execution discipline:

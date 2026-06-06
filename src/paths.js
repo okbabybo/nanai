@@ -55,6 +55,7 @@ export const paths = {
   websiteHtml: path.join(RESOURCES_DIR, 'website.html'),
   systemPromptHtml: path.join(RESOURCES_DIR, 'systemPrompt.html'),
   activationHtml: path.join(RESOURCES_DIR, 'activation.html'),
+  focusBannerHtml: path.join(RESOURCES_DIR, 'focus-banner.html'),
   brainUiAssetRoot: path.join(RESOURCES_DIR, 'src', 'ui', 'brain-ui'),
 }
 

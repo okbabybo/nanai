@@ -1,6 +1,17 @@
 import { getInstalledToolSchema } from './marketplace/index.js'
 
 // 所有工具的 schema 定义
+function execCommandDescription() {
+  const common = 'Run a shell command. Returns structured JSON with ok, mode, exit_code, stdout, stderr, timed_out, pid. Use background=true for long-running servers. Use cwd to run in a sandbox subdirectory instead of cd-chaining. Use promote_to_background=true so a foreground timeout converts the process to background instead of killing it. Do NOT use this tool for operations that have a dedicated tool — those are more reliable and handle encoding/sandbox/verification for you: write a file → write_file; read a file → read_file; list a directory → list_dir; delete a file/dir → delete_file; create a directory → make_dir; fetch a web page → fetch_url or browser_read. exec_command is for running programs (node, npm, python script.py, git, opening apps) and for file operations that have no dedicated tool (move/copy/rename, search file contents).'
+  if (process.platform === 'darwin') {
+    return `${common} On macOS runs in /bin/sh/POSIX shell syntax. Use macOS/POSIX commands such as ls, find, grep, sed, awk, cat, mkdir -p, rm, open, osascript, sw_vers, pmset, and launchctl. Do not use PowerShell, cmd.exe, Windows paths, registry commands, or Windows environment syntax.`
+  }
+  if (process.platform === 'win32') {
+    return `${common} On Windows runs in PowerShell — use PowerShell syntax (e.g. Get-ChildItem, $env:USERPROFILE, Write-Output).`
+  }
+  return `${common} On Linux runs in /bin/sh/POSIX shell syntax. Use Linux/POSIX commands such as ls, find, grep, sed, awk, cat, mkdir -p, rm, xdg-open, systemctl, and journalctl. Do not use PowerShell, cmd.exe, Windows paths, registry commands, or Windows environment syntax.`
+}
+
 export const TOOL_SCHEMAS = {
   express: {
     type: 'function',
@@ -258,7 +269,7 @@ export const TOOL_SCHEMAS = {
     type: 'function',
     function: {
       name: 'exec_command',
-      description: 'Run a shell command. Returns structured JSON with ok, mode, exit_code, stdout, stderr, timed_out, pid. On Windows runs in PowerShell — use PowerShell syntax (e.g. Get-ChildItem, $env:USERPROFILE, Write-Output). Use background=true for long-running servers. Use cwd to run in a sandbox subdirectory instead of cd-chaining. Use promote_to_background=true so a foreground timeout converts the process to background instead of killing it. Do NOT use this tool for operations that have a dedicated tool — those are more reliable and handle encoding/sandbox/verification for you: write a file → write_file (never WriteAllText/Out-File/Set-Content/echo >/python -c with embedded text; the quoting of multi-line content breaks repeatedly); read a file → read_file; list a directory → list_dir; delete a file/dir → delete_file (never Remove-Item/rm); create a directory → make_dir; fetch a web page → fetch_url or browser_read (never curl/Invoke-WebRequest). exec_command is for running programs (node, npm, python script.py, git, opening apps) and for file operations that have no dedicated tool (move/copy/rename, search file contents with findstr/Select-String).',
+      description: execCommandDescription(),
       parameters: {
         type: 'object',
         properties: {

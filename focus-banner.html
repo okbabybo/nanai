@@ -416,12 +416,36 @@ function toggleTask(idx) {
   syncCurrentStep()
 }
 
-/* ════════════════════════════════
-   云端 ASR
-   ════════════════════════════════ */
+async function getVoiceRuntimeConfig() {
+  const fallback = { provider: 'macos-local', lang: 'zh-CN' }
+  if (!backendPort) return fallback
+  try {
+    const resp = await fetch(`http://127.0.0.1:${backendPort}/settings/voice`)
+    const data = await resp.json()
+    const voice = data?.voice || {}
+    return {
+      provider: voice.voiceProvider || voice.provider || fallback.provider,
+      lang: voice.lang || fallback.lang,
+    }
+  } catch {
+    return fallback
+  }
+}
+
+function voiceWsUrl(provider) {
+  const path = provider === 'macos-local' ? '/voice/local' : '/voice/cloud'
+  return `ws://127.0.0.1:${backendPort}${path}`
+}
+
+  /* ════════════════════════════════
+     语音识别：macOS 本地优先，云端保留配置
+     ════════════════════════════════ */
 async function startRecording() {
   if (isRecording) { stopRecording(); return }
   if (!backendPort) { setTranscript('等待后端就绪...', 'interim'); return }
+
+  const voiceCfg = await getVoiceRuntimeConfig()
+  const provider = voiceCfg.provider || 'macos-local'
 
   try {
     micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
@@ -447,11 +471,11 @@ async function startRecording() {
     cloudWs.send(i16.buffer)
   }
 
-  cloudWs = new WebSocket(`ws://127.0.0.1:${backendPort}/voice/cloud`)
+  cloudWs = new WebSocket(voiceWsUrl(provider))
   cloudWs.binaryType = 'arraybuffer'
 
   cloudWs.onopen = () => {
-    cloudWs.send(JSON.stringify({ type: 'config', lang: 'zh' }))
+    cloudWs.send(JSON.stringify({ type: 'config', provider, lang: voiceCfg.lang || 'zh-CN' }))
     isRecording = true
     currentText = ''
     finalText = ''

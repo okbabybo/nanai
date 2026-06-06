@@ -752,6 +752,9 @@ export function setSocialConfig(updates) {
 
 const VOICE_CONFIG_KEYS = [
   'voiceProvider',
+  'provider',
+  'lang',
+  'macosRecognitionMode',
   'aliyunApiKey',
   'tencentSecretId', 'tencentSecretKey', 'tencentAppId',
   'xunfeiAppId', 'xunfeiApiKey', 'xunfeiApiSecret',
@@ -774,9 +777,17 @@ const CHAT_PROVIDERS_WITH_AMBIGUOUS_SK_KEYS = new Set([
 export function getVoiceConfig() {
   let stored = {}
   try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.voice || {} } catch {}
-  const result = { voiceProvider: stored.voiceProvider || 'aliyun' }
+  const provider = normalizeVoiceProvider(stored.voiceProvider || stored.provider)
+  const result = {
+    voiceProvider: provider,
+    provider,
+    lang: stored.lang || 'zh-CN',
+    macosRecognitionMode: stored.macosRecognitionMode || 'on-device',
+    local: process.platform === 'darwin',
+    cloud: hasConfiguredCloudASR(stored),
+  }
   for (const key of VOICE_CONFIG_KEYS) {
-    if (key === 'voiceProvider') continue
+    if (['voiceProvider', 'provider', 'lang', 'macosRecognitionMode'].includes(key)) continue
     result[key] = { configured: !!(stored[key]) }
     if (key === 'aliyunApiKey' && stored[key]) {
       result[key] = {
@@ -788,6 +799,38 @@ export function getVoiceConfig() {
   return result
 }
 
+function normalizeVoiceProvider(provider) {
+  const value = String(provider || '').trim()
+  if (value === 'macos' || value === 'local') return 'macos-local'
+  if (value === 'aliyun-bailian') return 'aliyun'
+  if (['macos-local', 'aliyun', 'tencent', 'xunfei', 'volcengine'].includes(value)) return value
+  return process.platform === 'darwin' ? 'macos-local' : 'aliyun'
+}
+
+function hasConfiguredCloudASR(stored = {}) {
+  return !!(
+    stored.aliyunApiKey
+    || (stored.tencentSecretId && stored.tencentSecretKey)
+    || (stored.xunfeiAppId && stored.xunfeiApiKey)
+    || stored.volcAsrApiKey
+    || (stored.volcAsrAppKey && stored.volcAsrAccessKey)
+  )
+}
+
+export function getVoiceCredentials() {
+  let stored = {}
+  try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.voice || {} } catch {}
+  const provider = normalizeVoiceProvider(stored.voiceProvider || stored.provider)
+  return {
+    ...stored,
+    voiceProvider: provider,
+    provider,
+    lang: stored.lang || 'zh-CN',
+    macosRecognitionMode: stored.macosRecognitionMode || 'on-device',
+    cloudConfigured: hasConfiguredCloudASR(stored),
+  }
+}
+
 export function setVoiceConfig(updates) {
   let existing = {}
   try { existing = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8')) } catch {}
@@ -796,6 +839,16 @@ export function setVoiceConfig(updates) {
   for (const [key, val] of Object.entries(updates)) {
     if (!VOICE_CONFIG_KEYS.includes(key)) continue
     const trimmed = String(val || '').trim()
+    if (key === 'provider' || key === 'voiceProvider') {
+      next.voiceProvider = normalizeVoiceProvider(trimmed)
+      delete next.provider
+      continue
+    }
+    if (key === 'lang') {
+      if (trimmed) next.lang = trimmed
+      else delete next.lang
+      continue
+    }
     if (key === 'aliyunApiKey' && trimmed && !isValidAliyunAsrKey(trimmed)) {
       console.warn('[voice-config] Ignoring invalid Aliyun ASR key format; expected DashScope sk-* API key')
       continue
@@ -813,6 +866,8 @@ export function setVoiceConfig(updates) {
     if (trimmed) next[key] = trimmed
     else delete next[key]
   }
+  next.voiceProvider = normalizeVoiceProvider(next.voiceProvider || next.provider)
+  delete next.provider
   writeStoredConfig({ ...existing, voice: next })
 }
 

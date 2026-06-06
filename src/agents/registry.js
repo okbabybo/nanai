@@ -146,8 +146,8 @@ export function buildAgentContextBlock() {
 
   const lines = agents.map(a => {
     const invoke = a.invoke_type === 'cli'
-      ? `exec_command("${a.invoke_cmd} ...")`
-      : `fetch_url("${a.invoke_cmd}/...")`
+      ? `delegate_to_agent({ agent_id: "${a.id}", prompt: "..." })`
+      : `delegate_to_agent({ agent_id: "${a.id}", prompt: "..." })`
     return `- **${a.name}** (${a.id})：${a.description}。调用：${invoke}`
   })
 

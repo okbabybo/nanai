@@ -11,7 +11,7 @@ import { getQuotaStatus } from './quota.js'
 import { isRunning, stopLoop, startLoop } from './control.js'
 import { buildHeartbeatSystemPromptPreview } from './system-prompt-preview.js'
 import { paths } from './paths.js'
-import { config, activate as activateLLM, getActivationStatus, switchModel, setTemperature, getMinimaxKey, setMinimaxKey, getSocialConfig, setSocialConfig, getVoiceConfig, setVoiceConfig, getTTSConfig, setTTSConfig, getTTSCredentials, getProviderSummaries, getSecurity, setSecurity, getEmbeddingConfig, setEmbeddingConfig, EMBEDDING_PROVIDER_PRESETS, getWebSearchConfig, setWebSearchConfig } from './config.js'
+import { config, activate as activateLLM, getActivationStatus, switchModel, setTemperature, getMinimaxKey, setMinimaxKey, getSocialConfig, setSocialConfig, getVoiceConfig, getVoiceCredentials, setVoiceConfig, getTTSConfig, setTTSConfig, getTTSCredentials, getProviderSummaries, getSecurity, setSecurity, getEmbeddingConfig, setEmbeddingConfig, EMBEDDING_PROVIDER_PRESETS, getWebSearchConfig, setWebSearchConfig } from './config.js'
 import { streamTTS, TTS_PROVIDERS, TTS_VOICES } from './voice/tts-providers.js'
 import { restartConnector } from './social/index.js'
 // manager.js (Whisper local server) removed
@@ -22,6 +22,7 @@ import { MinimaxProvider } from './providers/minimax.js'
 import { handleSocialWebhook, isSocialWebhookPath } from './social/webhooks.js'
 import { getClawbotQR, logoutClawbot } from './social/wechat-clawbot.js'
 import { createCloudASRSession } from './voice/cloud-asr.js'
+import { createMacSpeechSession } from './voice/macos-speech.js'
 import { getHotspots, setHotspotPanelState, getHotspotPanelState } from './hotspots.js'
 import { getPersonCard, setPersonCardPanelState, getPersonCardPanelState } from './person-cards.js'
 import { setDocPanelState, getDocPanelState, DOC_TOPICS } from './docs.js'
@@ -36,6 +37,7 @@ const BRAIN_UI_PATH      = paths.brainUiHtml
 const WEBSITE_PATH       = paths.websiteHtml
 const SYSTEM_PROMPT_PATH = paths.systemPromptHtml
 const ACTIVATION_PATH    = paths.activationHtml
+const FOCUS_BANNER_PATH  = paths.focusBannerHtml
 const BRAIN_UI_ASSET_ROOT = paths.brainUiAssetRoot
 const D3_VENDOR_PATH     = path.join(paths.resourcesDir, 'node_modules', 'd3', 'dist', 'd3.min.js')
 const SANDBOX_PATH       = paths.sandboxDir
@@ -301,12 +303,14 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       res.write(`data: ${JSON.stringify({ type: 'connected', ts: new Date().toISOString() })}\n\n`)
       flushStickyEvents(res)
       addSSEClient(res)
+      sseResponses.add(res)
       const keepAlive = setInterval(() => {
         try { res.write(': ping\n\n') } catch (_) { clearInterval(keepAlive); removeSSEClient(res) }
       }, 15000)
       req.on('close', () => {
         clearInterval(keepAlive)
         removeSSEClient(res)
+        sseResponses.delete(res)
       })
       return
     }
@@ -1067,6 +1071,18 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       return
     }
 
+    if (req.method === 'GET' && url.pathname === '/focus-banner.html') {
+      try {
+        const html = fs.readFileSync(FOCUS_BANNER_PATH, 'utf-8')
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+        res.end(html)
+      } catch {
+        res.writeHead(404)
+        res.end('focus-banner.html not found')
+      }
+      return
+    }
+
     if (req.method === 'GET' && url.pathname === '/vendor/d3/d3.min.js') {
       try {
         const stat = fs.statSync(D3_VENDOR_PATH)
@@ -1436,11 +1452,99 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     jsonResponse(res, 404, { error: 'not found' })
   })
 
-  // Cloud ASR WebSocket channel: frontend PCM → backend proxy → cloud ASR
-  const cloudWss = new WebSocketServer({ noServer: true })
-  cloudWss.on('connection', (ws) => {
+  const sseResponses = new Set()
+
+  // Voice ASR WebSocket channel. macOS uses Speech.framework first; cloud ASR
+  // remains configurable and is used directly when selected or as fallback.
+  const voiceWss = new WebSocketServer({ noServer: true })
+  const voiceSessions = new Set()
+  voiceWss.on('connection', (ws, req) => {
     let session = null
     let configured = false
+    let activeProvider = ''
+    let closingByClient = false
+    const pendingAudio = []
+    const MAX_PENDING_AUDIO = 32
+
+    const sendJson = (payload) => {
+      try {
+        if (ws.readyState === 1) ws.send(JSON.stringify(payload))
+      } catch {}
+    }
+
+    const pickCloudProvider = (cfg, requested) => {
+      if (['aliyun', 'tencent', 'xunfei', 'volcengine'].includes(requested)) return requested
+      if (['aliyun', 'tencent', 'xunfei', 'volcengine'].includes(cfg.voiceProvider)) return cfg.voiceProvider
+      if (cfg.volcAsrApiKey || (cfg.volcAsrAppKey && cfg.volcAsrAccessKey)) return 'volcengine'
+      if (cfg.aliyunApiKey) return 'aliyun'
+      if (cfg.tencentSecretId && cfg.tencentSecretKey) return 'tencent'
+      if (cfg.xunfeiAppId && cfg.xunfeiApiKey) return 'xunfei'
+      return 'aliyun'
+    }
+
+    const queueOrSendAudio = (buf) => {
+      if (!buf?.length) return
+      if (session?.sendAudio) {
+        session.sendAudio(buf)
+        return
+      }
+      if (pendingAudio.length < MAX_PENDING_AUDIO) pendingAudio.push(Buffer.from(buf))
+    }
+
+    const drainAudio = () => {
+      if (!session?.sendAudio) return
+      while (pendingAudio.length) session.sendAudio(pendingAudio.shift())
+    }
+
+    const startCloudSession = (voiceCfg, lang, requestedProvider) => {
+      const provider = pickCloudProvider(voiceCfg, requestedProvider)
+      const cloudLang = /^zh/i.test(lang) ? 'zh' : /^en/i.test(lang) ? 'en' : lang
+      activeProvider = provider
+      session = createCloudASRSession(
+        { ...voiceCfg, provider, lang: cloudLang },
+        (text, isFinal) => sendJson({ type: 'transcript', text, is_final: isFinal, provider: activeProvider }),
+        (errMsg) => sendJson({ type: 'error', message: errMsg, provider: activeProvider }),
+        () => { if (!closingByClient) { session = null; try { ws.close() } catch {} } }
+      )
+      if (session) {
+        sendJson({ type: 'status', message: `云端语音识别已连接: ${provider}`, provider })
+        drainAudio()
+        return true
+      }
+      return false
+    }
+
+    const startMacSession = (voiceCfg, lang, requestedProvider) => {
+      activeProvider = 'macos-local'
+      let macSession = null
+      macSession = createMacSpeechSession(
+        { lang, mode: voiceCfg.macosRecognitionMode || 'on-device' },
+        (text, isFinal) => sendJson({ type: 'transcript', text, is_final: isFinal, provider: activeProvider }),
+        (errMsg) => {
+          sendJson({ type: 'error', message: errMsg, provider: activeProvider })
+          if (!closingByClient && voiceCfg.cloudConfigured) {
+            sendJson({ type: 'status', message: 'macOS 本地识别不可用，正在切换云端识别', provider: activeProvider })
+            session?.close?.()
+            session = null
+            startCloudSession(voiceCfg, lang, requestedProvider)
+          }
+        },
+        () => {
+          if (!closingByClient && session === macSession) {
+            session = null
+            try { ws.close() } catch {}
+          }
+        },
+        (message) => sendJson({ type: 'status', message, provider: activeProvider })
+      )
+      if (macSession) {
+        session = macSession
+        sendJson({ type: 'status', message: 'macOS 本地语音识别启动中', provider: activeProvider })
+        return true
+      }
+      if (voiceCfg.cloudConfigured) return startCloudSession(voiceCfg, lang, requestedProvider)
+      return false
+    }
 
     ws.on('message', (raw) => {
       // First frame must be a JSON config frame
@@ -1448,27 +1552,26 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
         try {
           const msg = JSON.parse(raw.toString())
           if (msg.type !== 'config') return
-          // Read raw credentials from config.json
-          let rawCfg = {}
-          try { rawCfg = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.voice || {} } catch {}
-          const provider = rawCfg.voiceProvider || msg.provider || 'aliyun'
-          session = createCloudASRSession(
-            { provider, lang: msg.lang || 'zh', ...rawCfg },
-            (text, isFinal) => {
-              try { ws.send(JSON.stringify({ type: 'transcript', text, is_final: isFinal })) } catch {}
-            },
-            (errMsg) => {
-              try { ws.send(JSON.stringify({ type: 'error', message: errMsg })) } catch {}
-            },
-            () => { try { ws.close() } catch {} }
-          )
+          const voiceCfg = getVoiceCredentials()
+          const requestedProvider = msg.provider || voiceCfg.voiceProvider || 'macos-local'
+          const provider = req?.url?.startsWith('/voice/cloud')
+            ? pickCloudProvider(voiceCfg, requestedProvider)
+            : requestedProvider
+          const lang = msg.lang || voiceCfg.lang || 'zh-CN'
+          if (provider === 'macos-local') {
+            if (!startMacSession(voiceCfg, lang, requestedProvider)) {
+              sendJson({ type: 'error', message: 'macOS 本地语音识别不可用，且未配置云端 ASR', provider: 'macos-local' })
+            }
+          } else {
+            startCloudSession(voiceCfg, lang, provider)
+          }
           configured = true
         } catch {}
         return
       }
       // Subsequent frames are PCM binary
       if (raw instanceof Buffer) {
-        session?.sendAudio(raw)
+        queueOrSendAudio(raw)
       } else {
         try {
           const msg = JSON.parse(raw.toString())
@@ -1477,8 +1580,10 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       }
     })
 
-    ws.on('close', () => { session?.close(); session = null })
-    ws.on('error', () => { session?.close(); session = null })
+    ws.on('close', () => { closingByClient = true; pendingAudio.length = 0; session?.close(); session = null })
+    ws.on('error', () => { closingByClient = true; pendingAudio.length = 0; session?.close(); session = null })
+    ws.on('close', () => voiceSessions.delete(ws))
+    voiceSessions.add(ws)
   })
 
   // ACUI WebSocket channel: bidirectional control + perception
@@ -1566,8 +1671,19 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
         return
       }
       acuiWss.handleUpgrade(req, socket, head, (ws) => acuiWss.emit('connection', ws, req))
-    } else if (url.pathname === '/voice/cloud') {
-      cloudWss.handleUpgrade(req, socket, head, (ws) => cloudWss.emit('connection', ws, req))
+    } else if (url.pathname === '/voice/local' || url.pathname === '/voice/cloud') {
+      const origin = req.headers.origin
+      if (origin && !isAllowedOrigin(origin)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      if (!hasAllowedAccess(req, url)) {
+        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
+        socket.destroy()
+        return
+      }
+      voiceWss.handleUpgrade(req, socket, head, (ws) => voiceWss.emit('connection', ws, req))
     } else {
       socket.destroy()
     }
@@ -1591,5 +1707,30 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     console.log(`[API]   WS   /acui     — ACUI bidirectional channel (control + perception)`)
   })
 
-  return server
+  return {
+    server,
+    async close() {
+      clearInterval(acuiHeartbeat)
+      for (const res of sseResponses) {
+        try { res.end() } catch {}
+        removeSSEClient(res)
+      }
+      sseResponses.clear()
+      for (const ws of voiceSessions) {
+        try { ws.close() } catch {}
+        try { ws.terminate?.() } catch {}
+      }
+      voiceSessions.clear()
+      for (const ws of acuiWss.clients) {
+        try { ws.close() } catch {}
+        try { ws.terminate?.() } catch {}
+        removeACUIClient(ws)
+      }
+      await Promise.allSettled([
+        new Promise(resolve => voiceWss.close(() => resolve())),
+        new Promise(resolve => acuiWss.close(() => resolve())),
+        new Promise(resolve => server.close(() => resolve())),
+      ])
+    },
+  }
 }

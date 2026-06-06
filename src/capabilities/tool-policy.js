@@ -60,11 +60,16 @@ export function isDangerousShellCommand(command) {
   if (config.security?.execSandbox !== false) {
     if (/(^|[\s"'`])\.\.([\\/]|$)/.test(text)) reasons.push('command references a parent directory')
     if (/(^|[\s"'`])[a-z]:[\\/]/i.test(text) || /(^|[\s"'`])[\\/]{2}[^\\/]/.test(text)) reasons.push('command references an absolute filesystem path')
+    if (process.platform !== 'win32' && /(^|[\s"'`])\/(Users|Applications|System|Library|Volumes|private|tmp|etc|var|bin|sbin|usr|opt)([\/\s"'`]|$)/.test(text)) {
+      reasons.push('command references an absolute filesystem path')
+    }
     if (/(^|[\s"'`])~([\\/]|$)/.test(text) || /\$(home|env:userprofile)\b/i.test(text) || /%userprofile%/i.test(text)) reasons.push('command references the user home directory')
     if (/\bgit\s+reset\s+--hard\b/i.test(text) || /\bgit\s+clean\b/i.test(text)) reasons.push('command can destructively rewrite the worktree')
     if (/\b(format|diskpart|shutdown)\b/i.test(text)) reasons.push('command is system-level destructive or disruptive')
     if (/Remove-Item\b.*-Recurse|-Recurse\b.*Remove-Item/i.test(text)) reasons.push('recursive delete (Remove-Item -Recurse) detected')
     if (/\brd\s+\/s\b/i.test(text)) reasons.push('recursive directory delete (rd /s) detected')
+    if (process.platform !== 'win32' && /\brm\s+-(?:[a-z]*r[a-z]*f|[a-z]*f[a-z]*r)\b/i.test(text)) reasons.push('recursive force delete (rm -rf) detected')
+    if (process.platform !== 'win32' && /\bsudo\s+rm\b|\b(chmod|chown)\s+-R\b|\b(killall|pkill)\b/i.test(text)) reasons.push('POSIX command is destructive or process-disruptive')
     if (/\bInvoke-Expression\b|\biex\s/i.test(text)) reasons.push('dynamic code execution via Invoke-Expression detected')
   }
   return reasons
