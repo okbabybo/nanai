@@ -173,20 +173,26 @@ async function findFreePort(preferred = 3721) {
 function waitForBackend(port, timeoutMs = 30000) {
   const startedAt = Date.now()
   const url = `http://127.0.0.1:${port}/activation-status`
+  let lastProbe = 'no probe completed'
 
   return new Promise((resolve, reject) => {
     const tick = () => {
       if (Date.now() - startedAt > timeoutMs) {
-        reject(new Error('Backend startup timed out'))
+        reject(new Error(`Backend startup timed out on port ${port}. Last probe: ${lastProbe}`))
         return
       }
 
       const req = http.get(url, res => {
         res.resume()
+        lastProbe = `HTTP ${res.statusCode || 'unknown'} from ${url}`
         resolve()
       })
-      req.on('error', () => setTimeout(tick, 300))
+      req.on('error', err => {
+        lastProbe = err?.message || String(err)
+        setTimeout(tick, 300)
+      })
       req.setTimeout(1500, () => {
+        lastProbe = `timeout waiting for ${url}`
         req.destroy()
         setTimeout(tick, 300)
       })
@@ -408,7 +414,9 @@ focusBannerBridge.on('hide', () => {
 
 function setupAutoUpdater() {
   autoUpdater.autoDownload = false
-  autoUpdater.autoInstallOnAppQuit = true
+  // Avoid applying an already downloaded update while Windows is shutting down.
+  // The renderer still installs explicitly through updater:quit-and-install.
+  autoUpdater.autoInstallOnAppQuit = false
 
   autoUpdater.on('checking-for-update', () => {
     sendUpdaterStatus({ stage: 'checking' })
@@ -508,6 +516,7 @@ app.whenReady().then(async () => {
     await bootstrapBackend(backendPort)
     await waitForBackend(backendPort)
   } catch (err) {
+    console.error(`[main] Backend startup failed on port ${backendPort || 'unknown'}`, err?.stack || err?.message || err)
     dialog.showErrorBox('Startup failed', `Unable to start the Bailongma backend:\n${err.message}`)
     app.quit()
     return

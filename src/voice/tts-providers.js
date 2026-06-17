@@ -59,6 +59,63 @@ export const TTS_VOICES = {
   ],
 }
 
+// ── 各服务商凭证要求（合成前预检的单一权威）──────────────────────────────────
+// 每个 provider 声明若干「必填组」：组内任一字段非空即满足该组（如豆包 token 可用
+// accessKey 或 apiKey）。新增/调整 provider 只动这张表，execSpeak / /tts/stream 都复用。
+// 这是根治"朗读经常失败"的关键：以前要冲到各家 API 才裸抛"缺少 API Key"，
+// 现在合成前就能给出可执行的中文引导（不硬拦截，由模型/前端转述）。
+export const TTS_PROVIDER_REQUIREMENTS = {
+  doubao: {
+    label: '豆包（方舟）',
+    groups: [{ keys: ['doubaoAccessKey', 'doubaoKey'], label: 'Access Key 或 API Key' }],
+    guide: '请在「语音设置 → 语音合成」里选择豆包，并填入控制台的语音合成 Access Key（或 API Key）。',
+  },
+  minimax: {
+    label: 'MiniMax',
+    groups: [{ keys: ['minimaxKey'], label: 'API Key' }],
+    guide: '请在「语音设置 → 语音合成」里选择 MiniMax，并填入 MiniMax 的 API Key。',
+  },
+  openai: {
+    label: 'OpenAI TTS',
+    groups: [{ keys: ['openaiKey'], label: 'API Key' }],
+    guide: '请在「语音设置 → 语音合成」里选择 OpenAI，并填入 OpenAI 的 API Key（可选填自定义 BaseURL）。',
+  },
+  elevenlabs: {
+    label: 'ElevenLabs',
+    groups: [{ keys: ['elevenLabsKey'], label: 'API Key' }],
+    guide: '请在「语音设置 → 语音合成」里选择 ElevenLabs，并填入 ElevenLabs 的 API Key。',
+  },
+  volcano: {
+    label: '火山引擎',
+    groups: [
+      { keys: ['volcanoAppId'], label: 'AppId' },
+      { keys: ['volcanoToken'], label: 'Token' },
+    ],
+    guide: '请在「语音设置 → 语音合成」里选择火山引擎，并同时填写 AppId 和 Token 两项。',
+  },
+}
+
+// 合成前预检：当前 provider 是否选对、必填凭证是否配齐。
+// 返回 { ok:true } 或 { ok:false, provider, missing?, guide }——guide 是给用户看的可执行提示。
+export function validateTTSConfig(creds = {}) {
+  const provider = creds.provider
+  const req = TTS_PROVIDER_REQUIREMENTS[provider]
+  if (!req) {
+    return {
+      ok: false,
+      provider,
+      guide: `还没选择有效的语音合成服务商（当前：${provider || '空'}）。请在「语音设置 → 语音合成」里选择豆包 / MiniMax / OpenAI / ElevenLabs / 火山引擎 其中之一。`,
+    }
+  }
+  const missing = req.groups
+    .filter(group => !group.keys.some(k => String(creds[k] || '').trim()))
+    .map(group => group.label)
+  if (missing.length) {
+    return { ok: false, provider, missing, guide: `${req.label} 还没配置好：缺少 ${missing.join('、')}。${req.guide}` }
+  }
+  return { ok: true, provider }
+}
+
 // WHATWG ReadableStream (fetch response.body) → Node.js Readable
 function webStreamToNode(webStream) {
   return Readable.fromWeb(webStream)

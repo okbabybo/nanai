@@ -9,7 +9,7 @@ export const mediaSchemas = {
         type: 'object',
         properties: {
           text: { type: 'string', description: 'Text to convert to speech.' },
-          voice_id: { type: 'string', description: 'Optional voice ID. Available values: male-qn-qingse, male-qn-jingying, male-qn-badao, female-shaonv, female-yujie, female-chengshu, presenter_male, presenter_female. Default: male-qn-qingse.' },
+          voice_id: { type: 'string', description: 'Optional voice ID. Omit this unless the user explicitly asks for a specific known voice. The system uses the configured TTS voice by default; a voice ID must belong to the current TTS provider.' },
           filename: { type: 'string', description: 'Optional output filename without extension.' },
         },
         required: ['text']

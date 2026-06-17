@@ -471,6 +471,14 @@ const createSettingsModal = () => `
             <div class="settings-section-label">语音合成（TTS）</div>
             <p class="settings-hint">用语音发消息时，Agent 回复会自动转为语音播放。首选推荐豆包语音合成 2.0（https://console.volcengine.com/speech/new/），也支持 MiniMax、OpenAI、ElevenLabs、火山引擎。</p>
             <div class="settings-row">
+              <label class="settings-label" for="voice-output-select">输出设备</label>
+              <select class="settings-select" id="voice-output-select">
+                <option value="">自动（跟随系统，避开虚拟设备）</option>
+              </select>
+              <button class="settings-save-btn" id="voice-refresh-outputs" type="button" style="padding:0 10px;">刷新</button>
+            </div>
+            <p class="settings-hint" id="voice-output-status" style="margin-top:-2px;">语音从这里发声。默认自动选择；拔耳机会自动切回扬声器，不会被串流/虚拟声卡占用。</p>
+            <div class="settings-row">
               <label class="settings-label" for="tts-provider-select">服务商</label>
               <select class="settings-select" id="tts-provider-select">
                 <option value="doubao">豆包（方舟，流式，中文最自然）</option>

@@ -11,6 +11,7 @@ import { enrichVisiblePersonCardFromText, initPersonCard, setPersonCardMode, sho
 import { initDocPanel, setDocPanelMode } from "./doc.js";
 import { initWechatPopup, showWechatPopup } from "./wechat-popup.js";
 import { attachJarvisAudioGraph, attachJarvisFx, isFxEnabledForVoice, setFxEnabledForVoice, getJarvisFxParams, setJarvisFxParams, resetJarvisFxParams, isFxUnlocked, tryUnlockFx } from "./tts-fx.js";
+import { initAudioOutputRouting, applyOutputSink, listOutputDevices, getOutputPreference, setOutputPreference } from "./audio-output.js";
 renderBrainUiApp(document.body);
 const THEME_KEY = "jarvis-brain-ui-theme";
 const PHYSICS_STORAGE_KEY = "jarvis-brain-ui-physics";
@@ -1501,6 +1502,7 @@ function handle({ type, data = {} }) {
       if (data.autoPlay && data.path) {
         const audioUrl = `${API}/${data.path}`;
         const audioEl = new Audio(audioUrl);
+        applyOutputSink(audioEl).catch(() => {}); // 与 TTS 同路由，避开虚拟/已拔出设备
         audioEl.play().catch(() => {});
       }
       break;
@@ -1788,6 +1790,10 @@ function startTTSAudio(audioEl, revokeUrl, opts = {}) {
   };
   audioEl.onended = finish;
   audioEl.onerror = finish;
+  // 把这段语音显式路由到真实输出设备（规避被系统默认占用的虚拟/已拔出声卡）。
+  // setSinkId 是异步的，但对流式 TTS，首个音频样本要等网络首包到达才流出，
+  // 这点路由耗时（毫秒级）远在出声之前完成 → 不必 await，也不会让首音漏到默认设备。
+  applyOutputSink(audioEl).catch(() => {});
   audioEl.play().catch(() => {
     clearTTSAudioGraph(audioGraph);
     if (ttsAudioEl !== audioEl) return;
@@ -2430,6 +2436,7 @@ function initTTSSettings() {
         attachJarvisFx(ttsAudio, voiceSel?.value || activeTTSVoiceId); // 试听按当前选中音色的开关决定是否叠加
         ttsAudio.onended = () => { URL.revokeObjectURL(ttsUrl); if (testStatus) testStatus.textContent = ""; };
         ttsAudio.onerror = () => { URL.revokeObjectURL(ttsUrl); if (testStatus) testStatus.textContent = "播放失败"; };
+        await applyOutputSink(ttsAudio).catch(() => {}); // 试听也走同一输出路由
         await ttsAudio.play();
         if (testStatus) testStatus.textContent = "播放中";
         setTimeout(() => { if (testStatus && testStatus.textContent === "播放中") testStatus.textContent = ""; }, 8000);
@@ -2469,6 +2476,9 @@ function initTTSSettings() {
   const voiceMicSelect    = document.getElementById("voice-mic-select");
   const voiceRefreshMicsBtn = document.getElementById("voice-refresh-mics");
   const voiceMicStatus    = document.getElementById("voice-mic-status");
+  const voiceOutputSelect    = document.getElementById("voice-output-select");
+  const voiceRefreshOutputsBtn = document.getElementById("voice-refresh-outputs");
+  const voiceOutputStatus    = document.getElementById("voice-output-status");
 
   if (!settingsBtn || !overlay) return;
 
@@ -2939,6 +2949,74 @@ function initTTSSettings() {
     }
   }
 
+  function setVoiceOutputStatus(message, isError = false) {
+    if (!voiceOutputStatus) return;
+    voiceOutputStatus.textContent = message;
+    voiceOutputStatus.style.color = isError ? "var(--warm)" : "var(--dim)";
+  }
+
+  // 填充"语音输出设备"下拉。结构对齐麦克风选择器：第一项=自动，其余=具体设备；
+  // 虚拟/串流设备打标提示用户它们不会真正出声。
+  async function loadOutputDevices({ requestPermission = false } = {}) {
+    if (!voiceOutputSelect) return;
+    if (!('setSinkId' in HTMLMediaElement.prototype)) {
+      voiceOutputSelect.disabled = true;
+      setVoiceOutputStatus("当前环境不支持指定输出设备，将使用系统默认。", true);
+      return;
+    }
+    const savedDeviceId = getOutputPreference();
+    const preferred = voiceOutputSelect.value || savedDeviceId;
+    voiceOutputSelect.disabled = true;
+    if (voiceRefreshOutputsBtn) voiceRefreshOutputsBtn.disabled = true;
+    try {
+      // label/deviceId 需要媒体权限；点"刷新"时主动请求一次，平时静默枚举
+      if (requestPermission && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+          s.getTracks().forEach(t => t.stop());
+        } catch {}
+      }
+      const outs = await listOutputDevices();
+      // 只列真实可选设备（隐藏 default/communications 别名，避免和"自动"重复）
+      const selectable = outs.filter(d => !d.isDefault && d.label);
+      voiceOutputSelect.innerHTML = "";
+      const autoOpt = document.createElement("option");
+      autoOpt.value = "";
+      autoOpt.textContent = "自动（跟随系统，避开虚拟设备）";
+      voiceOutputSelect.appendChild(autoOpt);
+      selectable.forEach((d, i) => {
+        const opt = document.createElement("option");
+        opt.value = d.deviceId;
+        opt.textContent = (d.label || `输出设备 ${i + 1}`) + (d.isVirtual ? "（虚拟，可能没声音）" : "");
+        voiceOutputSelect.appendChild(opt);
+      });
+      const stillExists = !preferred || selectable.some(d => d.deviceId === preferred);
+      voiceOutputSelect.value = stillExists ? preferred : "";
+      if (!stillExists && savedDeviceId) setOutputPreference(""); // 钉的设备没了 → 回到自动
+
+      const hasLabels = selectable.some(d => d.label);
+      if (!selectable.length) {
+        setVoiceOutputStatus("未检测到独立扬声器/耳机，点刷新并授权后可显示。");
+      } else if (!hasLabels) {
+        setVoiceOutputStatus("点刷新并授权后可显示设备完整名称。");
+      } else {
+        setVoiceOutputStatus("语音从这里发声。默认自动；拔耳机会自动切回扬声器，不被虚拟声卡占用。");
+      }
+    } catch {
+      setVoiceOutputStatus("输出设备列表读取失败，将使用系统默认。", true);
+    } finally {
+      voiceOutputSelect.disabled = false;
+      if (voiceRefreshOutputsBtn) voiceRefreshOutputsBtn.disabled = false;
+    }
+  }
+
+  voiceRefreshOutputsBtn?.addEventListener("click", () => loadOutputDevices({ requestPermission: true }));
+  // 选择即时生效（无需点保存）：写偏好 → 模块自动把在播语音切过去并复评横幅
+  voiceOutputSelect?.addEventListener("change", () => {
+    setOutputPreference(voiceOutputSelect.value || "");
+    setVoiceOutputStatus(voiceOutputSelect.value ? "已切换，立即生效。" : "已设为自动，立即生效。");
+  });
+
   const voiceProviderSelect = document.getElementById("voice-provider-select");
   if (voiceProviderSelect) {
     voiceProviderSelect.addEventListener("change", () => applyVoiceProviderUI(voiceProviderSelect.value));
@@ -2974,7 +3052,7 @@ function initTTSSettings() {
   });
 
   navigator.mediaDevices?.addEventListener?.("devicechange", () => {
-    if (!overlay.hidden) loadMicrophoneDevices();
+    if (!overlay.hidden) { loadMicrophoneDevices(); loadOutputDevices(); }
   });
 
   async function loadVoiceSettings() {
@@ -2988,6 +3066,7 @@ function initTTSSettings() {
     if (voiceThreshSlider) voiceThreshSlider.value = String(savedThresh);
     if (voiceThreshVal)    voiceThreshVal.textContent = savedThresh.toFixed(3);
     await loadMicrophoneDevices();
+    await loadOutputDevices();
 
     let savedProvider = localStorage.getItem(VOICE_PROVIDER_KEY) || "aliyun";
     try {
@@ -3478,6 +3557,11 @@ initVoicePanel({
   getAutoSend:   () => localStorage.getItem("bailongma-voice-auto-send") !== "false",
   getAutoMic:    () => localStorage.getItem("bailongma-voice-auto-mic") === "true",
 });
+
+// ── 语音输出设备路由 ──
+// 监听设备插拔：拔耳机/虚拟设备占用系统默认时，把正在播的语音即时切到真实硬件；
+// 完全无设备时弹一键修复横幅。getCurrentAudioEl 回传当前在播 TTS 元素。
+initAudioOutputRouting({ getCurrentAudioEl: () => ttsAudioEl });
 
 // ── Hotspot mode ──
 initHotspot().catch((err) => console.warn('[Hotspot] init failed:', err));

@@ -14,6 +14,8 @@
 // 安全原则：任何一步不可用（Web Audio 缺失 / 上下文未被用户手势解锁 / 创建失败）
 // 都直接放弃接管，退回 <audio> 原生播放，绝不让声音变哑。
 
+import { applyContextSink } from './audio-output.js'
+
 const FX_STORAGE_KEY = 'bailongma.ttsfx.v2'      // 音效参数（手感）；v2＝金属感默认调高+新增金属/Flanger参数
 const FX_VOICES_KEY = 'bailongma.ttsfx.voices'   // 哪些音色开启了音效（音色 ID 列表）
 
@@ -431,10 +433,13 @@ export function attachJarvisAudioGraph(audioEl, voiceId) {
     } else {
       analyser.connect(ctx.destination)
     }
+    // 声音经此 ctx 输出 → 把输出设备 sink 设在 ctx 上（元素的 setSinkId 在此被绕过）。
+    applyContextSink(ctx).catch(() => {})
   } catch {
     teardown()
     try {
       mediaSource.connect(ctx.destination)
+      applyContextSink(ctx).catch(() => {})
       return {
         analyser: null,
         teardown: () => { try { mediaSource.disconnect() } catch { /* ignore */ } },

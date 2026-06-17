@@ -13,7 +13,7 @@ import { isRunning, stopLoop, startLoop } from './control.js'
 import { buildHeartbeatSystemPromptPreview } from './system-prompt-preview.js'
 import { paths } from './paths.js'
 import { config, activate as activateLLM, prepareActivation as prepareLLMActivation, commitPreparedActivation, getActivationStatus, switchModel, saveLLMSettings, setTemperature, getMinimaxKey, setMinimaxKey, getSocialConfig, setSocialConfig, getVoiceConfig, setVoiceConfig, getTTSConfig, setTTSConfig, getTTSCredentials, getProviderSummaries, getSecurity, setSecurity, getEmbeddingConfig, setEmbeddingConfig, EMBEDDING_PROVIDER_PRESETS, getWebSearchConfig, setWebSearchConfig } from './config.js'
-import { streamTTS, TTS_PROVIDERS, TTS_VOICES } from './voice/tts-providers.js'
+import { streamTTS, TTS_PROVIDERS, TTS_VOICES, validateTTSConfig } from './voice/tts-providers.js'
 import { restartConnector } from './social/index.js'
 // manager.js (Whisper local server) removed
 import { replaceProvider } from './providers/registry.js'
@@ -167,13 +167,53 @@ function jsonResponse(res, status, body) {
   res.end(JSON.stringify(body))
 }
 
+function getRequestCharset(contentType = '') {
+  const match = String(contentType || '').match(/(?:^|;)\s*charset\s*=\s*"?([^";\s]+)"?/i)
+  return match?.[1]?.trim().toLowerCase() || ''
+}
+
+function decodeRequestBody(buffer, contentType = '') {
+  if (!buffer || buffer.length === 0) return ''
+
+  if (buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF) {
+    return buffer.slice(3).toString('utf8')
+  }
+  if (buffer[0] === 0xFF && buffer[1] === 0xFE) {
+    return buffer.slice(2).toString('utf16le')
+  }
+  if (buffer[0] === 0xFE && buffer[1] === 0xFF) {
+    try { return new TextDecoder('utf-16be').decode(buffer.slice(2)) } catch {}
+  }
+
+  const charset = getRequestCharset(contentType)
+  if (charset === 'utf8' || charset === 'utf-8' || charset === '') {
+    const decoded = buffer.toString('utf8')
+    if (!charset && decoded.includes('\uFFFD')) {
+      try {
+        const fallback = new TextDecoder('gbk', { fatal: true }).decode(buffer)
+        if (fallback && !fallback.includes('\uFFFD')) return fallback
+      } catch {}
+    }
+    return decoded
+  }
+  if (charset === 'utf16le' || charset === 'utf-16le' || charset === 'ucs-2' || charset === 'utf16') {
+    return buffer.toString('utf16le')
+  }
+
+  try {
+    return new TextDecoder(charset, { fatal: true }).decode(buffer)
+  } catch {
+    return buffer.toString('utf8')
+  }
+}
+
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = []
     req.on('data', chunk => chunks.push(chunk))
     req.on('end', () => {
       try {
-        const raw = Buffer.concat(chunks).toString('utf-8')
+        const raw = decodeRequestBody(Buffer.concat(chunks), req.headers['content-type'])
         resolve(raw ? JSON.parse(raw) : {})
       } catch (err) {
         reject(err)
@@ -323,21 +363,23 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
 
     // POST /message — send message to agent
     if (req.method === 'POST' && url.pathname === '/message') {
-      const chunks = []
-      req.on('data', chunk => chunks.push(chunk))
-      req.on('end', () => {
-        try {
-          const body = Buffer.concat(chunks).toString('utf-8')
-          const { from_id = 'ID:000001', content, channel = 'API' } = JSON.parse(body)
-          if (!content?.trim()) return jsonResponse(res, 400, { error: 'content required' })
-          const trimmed = content.trim()
-          pushMessage(from_id, trimmed, channel)
-          emitEvent('message_in', { from_id, content: trimmed, channel, timestamp: new Date().toISOString() })
-          jsonResponse(res, 200, { ok: true, agent_name: getAgentName() })
-        } catch (e) {
-          jsonResponse(res, 400, { error: e.message })
-        }
-      })
+      try {
+        const body = await readJsonBody(req)
+        const { from_id = 'ID:000001', content, channel = 'API' } = body
+        if (!content?.trim()) return jsonResponse(res, 400, { error: 'content required' })
+        const trimmed = content.trim()
+        const strictEvaluation = body.strict_evaluation ?? body.strictEvaluation
+          ?? (String(body.evaluation_mode || body.evaluationMode || '').toLowerCase() === 'strict' ? true : undefined)
+        const forbiddenTools = body.forbidden_tools ?? body.forbiddenTools
+        const meta = {}
+        if (strictEvaluation !== undefined) meta.strictEvaluation = strictEvaluation
+        if (Array.isArray(forbiddenTools)) meta.forbiddenTools = forbiddenTools
+        pushMessage(from_id, trimmed, channel, meta)
+        emitEvent('message_in', { from_id, content: trimmed, channel, timestamp: new Date().toISOString() })
+        jsonResponse(res, 200, { ok: true, agent_name: getAgentName() })
+      } catch (e) {
+        jsonResponse(res, 400, { error: e.message })
+      }
       return
     }
 
@@ -1514,6 +1556,9 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           const text = stripMarkdownForSpeech(body.text)
           if (!text) { jsonResponse(res, 400, { ok: false, error: 'Missing text parameter' }); return }
           const creds = getTTSCredentials()
+          // 合成前预检：服务商未选/凭证未配齐时给出可执行引导，而非冲到 streamTTS 才裸抛
+          const check = validateTTSConfig(creds)
+          if (!check.ok) { jsonResponse(res, 400, { ok: false, error: check.guide, needsConfig: true, provider: check.provider }); return }
           const audioStream = await streamTTS({
             text: text.slice(0, 800),
             provider: creds.provider,

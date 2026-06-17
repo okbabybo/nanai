@@ -32,6 +32,12 @@ export function getDB() {
   return db
 }
 
+export function closeDBForTest() {
+  if (!db) return
+  db.close()
+  db = null
+}
+
 function initSchema() {
   // 迁移：添加 parent_id 字段（已存在时跳过）
   try { db.exec(`ALTER TABLE memories ADD COLUMN parent_id INTEGER REFERENCES memories(id)`) } catch {}

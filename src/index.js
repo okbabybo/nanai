@@ -46,6 +46,7 @@ import { PRIMARY_USER_ID, formatPresenceForPrompt, normalizeChannel, isExternalC
 import { truncateToolResultForUI } from './runtime/tool-result-preview.js'
 import { buildLLMMessages } from './runtime/messages.js'
 import { parseMarkers } from './runtime/markers.js'
+import { buildStrictEvaluationContext, filterStrictEvaluationTools, resolveStrictEvaluationMode } from './runtime/strict-evaluation.js'
 import { extractVerbatimPayload, findRecentVerbatimPayload, hasInlineVerbatimPayload, isVerbatimOutputRequest, isVerbatimSetup, isVerbatimStart } from './runtime/verbatim.js'
 import { refreshUserProfile } from './profile/infer.js'
 
@@ -633,11 +634,11 @@ function buildToolContextForProcess(msg, injection) {
   }
 }
 
-function resolveTurnTools(injectedTools = [], { silentSignal = false } = {}) {
+function resolveTurnTools(injectedTools = [], { silentSignal = false, strictEvaluation = null } = {}) {
   if (silentSignal) return []
   const tools = Array.isArray(injectedTools) ? injectedTools.filter(Boolean) : []
   if (!tools.includes('send_message')) tools.unshift('send_message')
-  return tools
+  return filterStrictEvaluationTools(tools, strictEvaluation)
 }
 
 const MAX_MESSAGE_RETRIES = 3
@@ -861,6 +862,8 @@ async function runTurn(input, label, msg = null) {
   const controller = new AbortController()
   let llmResult = null
   let toolCallLog = []
+  let voiceTurn = false
+  let localReply = false
   let terminalEmitted = false
   const finishTurn = (content = '') => {
     if (isTick || silentSignal || terminalEmitted) return
@@ -1243,6 +1246,14 @@ async function runTurn(input, label, msg = null) {
     }
 
     let contextBlock = buildContextBlock(gateResult.args)
+    const strictEvaluation = resolveStrictEvaluationMode(msg?.content || input || '', {
+      strictEvaluation: msg?.strictEvaluation,
+      forbiddenTools: msg?.forbiddenTools,
+    })
+    const strictEvaluationContext = buildStrictEvaluationContext(strictEvaluation)
+    if (strictEvaluationContext) {
+      contextBlock = [contextBlock, strictEvaluationContext].filter(Boolean).join('\n\n')
+    }
 
     // P0-1：把本轮焦点 topic 字符串传给 buildLLMMessages，用于：
     //   - conversationWindow 每条消息 marker 上的 topic 标签
@@ -1314,16 +1325,17 @@ async function runTurn(input, label, msg = null) {
 
     // 3. Call Jarvis LLM (can be interrupted by a new message)
     const toolContext = buildToolContextForProcess(msg, injection)
+    toolContext.strictEvaluation = strictEvaluation
     // 审视分身取证：把本轮正在累积的工具日志数组引用挂进 toolContext。execReviewWork 在循环中途
     // 被调时读它，即可拿到"主 Agent 到此为止实际做了什么"的真实证据（数组按引用传递，调用时已填充）。
     // 这是审视独立性的承重墙——主 Agent 无法在 review_work 参数里粉饰或省略它做过的事。
     toolContext.turnToolLog = toolCallLog
-    const voiceTurn = isVoiceChannel(msg?.channel)
+    voiceTurn = isVoiceChannel(msg?.channel)
     // localReply：本地渠道（语音 / TUI，非社交）下纯文本即回复，模型无需调 send_message——
     // runtime 协议兜底会替它真正投递（含语音 TTS）。社交渠道（微信/Discord/飞书/企微）才必须
     // send_message 才能送达外部平台。省掉 send_message 那一整轮额外 LLM 调用是语音提速的关键。
-    const localReply = !!msg?.fromId && !silentSignal && !isExternalChannel(msg?.channel)
-    let turnTools = resolveTurnTools(injection.tools, { silentSignal })
+    localReply = !!msg?.fromId && !silentSignal && !isExternalChannel(msg?.channel)
+    let turnTools = resolveTurnTools(injection.tools, { silentSignal, strictEvaluation })
     // 语音轮撤掉 send_message（用户决策）：语音回复直接走纯文本 → runtime 协议兜底 executeTool
     // 投递 + 自动 TTS，模型既不必也不能调 send_message，彻底消除"调工具那一轮"的延迟，也不让它
     // 在 UI 里显式出现。例外：消息意图明显要往外部/社交渠道发（"发到我微信"等）时保留，否则模型

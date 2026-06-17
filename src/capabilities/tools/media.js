@@ -16,7 +16,7 @@ import { pushMessage } from '../../queue.js'
 import { callCapability } from '../../providers/registry.js'
 import { isDailyLimitReached } from '../../quota.js'
 import { getTTSCredentials, getSeedanceConfig } from '../../config.js'
-import { streamTTS } from '../../voice/tts-providers.js'
+import { streamTTS, TTS_VOICES, validateTTSConfig } from '../../voice/tts-providers.js'
 import { paths } from '../../paths.js'
 import { SANDBOX_ROOT } from '../sandbox.js'
 import { getCountryCode } from '../../geo-weather.js'
@@ -24,31 +24,113 @@ import { getCountryCode } from '../../geo-weather.js'
 const IS_WIN = process.platform === 'win32'
 
 // speak：将文字转为语音，保存为音频文件
-// 有效的 MiniMax 声音 ID
-const VALID_VOICE_IDS = new Set([
-  'male-qn-qingse', 'male-qn-jingying', 'male-qn-badao', 'male-qn-daxuesheng',
-  'female-shaonv', 'female-yujie', 'female-chengshu', 'female-tianmei',
-  'presenter_male', 'presenter_female', 'audiobook_male_1', 'audiobook_female_1',
-])
-const DEFAULT_VOICE = 'male-qn-qingse'
+function resolveProviderVoiceId(provider, requestedVoiceId, configuredVoiceId) {
+  const voices = TTS_VOICES[provider] || []
+  if (!voices.length) return requestedVoiceId || configuredVoiceId || undefined
 
-export async function execSpeak(args) {
-  const text = args.text || args.content || args.words || args.speech
-  const { filename } = args
-  console.log(`[speak] args:`, JSON.stringify(args))
-  if (!text) return '错误：未提供要朗读的文字'
-  if (isDailyLimitReached('tts')) return '错误：今日 TTS 配额已用完'
-  if (text.length > 1000) return `错误：文字过长（${text.length} 字），请控制在 1000 字以内`
+  const validIds = new Set(voices.map(v => v.id))
+  if (requestedVoiceId && validIds.has(requestedVoiceId)) return requestedVoiceId
+  if (requestedVoiceId) {
+    console.warn(`[speak] Ignoring voice_id "${requestedVoiceId}" because it is not valid for TTS provider "${provider}"`)
+  }
 
-  const creds = getTTSCredentials()
-  const voiceId = (args.voice_id || args.voice) || creds.voiceId
+  if (configuredVoiceId && validIds.has(configuredVoiceId)) return configuredVoiceId
+  if (configuredVoiceId) {
+    console.warn(`[speak] Ignoring configured voice "${configuredVoiceId}" because it is not valid for TTS provider "${provider}"`)
+  }
 
-  const nodeStream = await streamTTS({ text, provider: creds.provider, voiceId, keys: creds })
+  return voices[0]?.id
+}
+
+// 朗读文本长度上限（与 schema 描述对齐为同一常量；剥掉 markdown 后再计）
+const SPEAK_MAX_CHARS = 1000
+
+// 把流缓冲成完整音频 buffer；空音频视为失败（很多 provider 在音色无权限/参数错时返回空流）
+async function collectAudioStream(nodeStream) {
   const chunks = []
   for await (const chunk of nodeStream) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk))
   }
-  const buffer = Buffer.concat(chunks)
+  return Buffer.concat(chunks)
+}
+
+// 可重试的瞬时错误：网络抖动 / 限流 / 5xx。凭证错、参数错不在此列（重试无意义）。
+function isTransientTTSError(err) {
+  const m = String(err?.message || '')
+  return /\b(429|500|502|503|504)\b/.test(m)
+    || /timeout|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket hang up|fetch failed|network|aborted/i.test(m)
+}
+
+// 合成：瞬时失败自动重试一次；其余直接抛给上层归一化
+async function synthSpeechBuffer({ text, provider, voiceId, creds }) {
+  let lastErr
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const nodeStream = await streamTTS({ text, provider, voiceId, keys: creds })
+      const buffer = await collectAudioStream(nodeStream)
+      if (!buffer.length) throw new Error('TTS 返回空音频（音色可能未在账号开通，或参数不被支持）')
+      return buffer
+    } catch (err) {
+      lastErr = err
+      if (err.name === 'AbortError') throw err
+      if (attempt === 0 && isTransientTTSError(err)) {
+        console.warn(`[speak] 合成失败(瞬时，重试一次): ${err.message}`)
+        await new Promise(r => setTimeout(r, 600))
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastErr
+}
+
+// 把各家 SDK 的裸错误归一成"该去哪改什么"的可执行中文提示，供模型转述给用户
+function normalizeTTSError(err, provider) {
+  const msg = String(err?.message || '未知错误').slice(0, 200)
+  if (/resource ID is mismatched|55000000/i.test(msg)) {
+    return `语音合成失败：豆包音色与 Resource ID 不匹配。2.0 音色（*_uranus_bigtts）需用 seed-tts-2.0，旧 moon/BV 音色需 seed-tts-1.0。请去语音设置切换音色，或清空/改正 Resource ID。（${msg}）`
+  }
+  if (/\b(401|403)\b/.test(msg) || /unauthor|invalid.*(key|token)|api[ _-]?key/i.test(msg)) {
+    return `语音合成失败：当前服务商（${provider}）的凭证可能无效或已过期。请去语音设置重新填写后再试。（${msg}）`
+  }
+  if (/\b429\b|rate.?limit|quota|配额|余额|insufficient/i.test(msg)) {
+    return `语音合成失败：服务商（${provider}）触发限流或配额/余额不足。请稍后再试或检查账户。（${msg}）`
+  }
+  if (isTransientTTSError(err)) {
+    return `语音合成失败：网络或服务暂时不可用（已自动重试一次）。请稍后再试。（${msg}）`
+  }
+  return `语音合成失败：${msg}`
+}
+
+export async function execSpeak(args) {
+  const rawText = args.text || args.content || args.words || args.speech
+  const { filename } = args
+  console.log(`[speak] args:`, JSON.stringify(args))
+  if (!rawText) return '错误：未提供要朗读的文字'
+  if (isDailyLimitReached('tts')) return '错误：今日 TTS 配额已用完'
+
+  // 与流式 /tts/stream 入口对齐：先剥 markdown，避免把 * # ` 等符号念成"星号""井号"
+  const text = stripMarkdownForSpeech(rawText)
+  if (!text) return '错误：去掉符号后没有可朗读的文字'
+  if (text.length > SPEAK_MAX_CHARS) return `错误：文字过长（${text.length} 字），请控制在 ${SPEAK_MAX_CHARS} 字以内`
+
+  const creds = getTTSCredentials()
+
+  // 合成前预检：当前服务商凭证没配齐就直接返回结构化引导，不冲到 API 才裸报错。
+  const check = validateTTSConfig(creds)
+  if (!check.ok) return `语音合成还不能用：${check.guide}`
+
+  const requestedVoiceId = args.voice_id || args.voice
+  const voiceId = resolveProviderVoiceId(creds.provider, requestedVoiceId, creds.voiceId)
+
+  let buffer
+  try {
+    buffer = await synthSpeechBuffer({ text, provider: creds.provider, voiceId, creds })
+  } catch (err) {
+    if (err.name === 'AbortError') throw err
+    console.warn(`[speak] 合成失败: ${err.message}`)
+    return normalizeTTSError(err, creds.provider)
+  }
 
   const ts = nowTimestamp().replace(/[:.+]/g, '-').slice(0, 19)
   const fname = filename ? filename.replace(/[^a-zA-Z0-9_一-龥-]/g, '') + '.mp3' : `speech_${ts}.mp3`

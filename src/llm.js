@@ -8,6 +8,7 @@ import { isTerminalInternalToolRound } from './runtime/tool-protocol.js'
 import { stripMarkers } from './runtime/markers.js'
 import { beginTurn } from './runtime/turn-trace.js'
 import { createMergedAbortSignal } from './capabilities/abort-utils.js'
+import { filterStrictEvaluationTools, isToolForbiddenInStrictEvaluation, makeStrictForbiddenToolResult } from './runtime/strict-evaluation.js'
 
 // 单轮流式调用的「空闲超时」：从开始到第一个 token、以及每两个 token 之间，
 // 若超过这个时长没有任何增量到达，判定为 provider 连接卡死（连接开着却不吐字节）。
@@ -19,7 +20,7 @@ const STREAM_IDLE_TIMEOUT_MS = 45_000
 // find_tool 命中后，把它返回的 loaded 工具 schema 原地追加进本轮 toolSchemas。
 // 已在列表里的跳过；schema 取不到的跳过。数组原地 mutate —— 调用方传的是 callLLM 的 toolSchemas
 // 引用，push 后下一轮 streamOnceWithRetry 自动带上这些新工具，模型即可直接调用。
-function injectFoundToolSchemas(result, toolSchemas) {
+function injectFoundToolSchemas(result, toolSchemas, strictEvaluation = null) {
   try {
     const parsed = JSON.parse(result)
     const loaded = parsed?.loaded
@@ -27,6 +28,10 @@ function injectFoundToolSchemas(result, toolSchemas) {
     const present = new Set(toolSchemas.map(s => s?.function?.name).filter(Boolean))
     for (const name of loaded) {
       if (typeof name !== 'string' || present.has(name)) continue
+      if (isToolForbiddenInStrictEvaluation(strictEvaluation, name)) {
+        console.log(`[find_tool] strict evaluation skipped forbidden tool → ${name}`)
+        continue
+      }
       const schema = getToolSchemas([name])[0]
       if (schema) {
         toolSchemas.push(schema)
@@ -800,8 +805,9 @@ function isCloserPattern(content) {
 //   refresh agent 的上下文"，**不**期望模型回复用户。当 silentSignal=true 时，
 //   runtime 直接拦截 send_message 调用（不让它真投递），并在工具结果里告知
 //   "本轮是 silent 系统信号，不要 send_message"，让模型从这次拒绝里学到边界。
-export async function callLLM({ systemPrompt, message, messages: inputMessages = null, temperature = 0.5, topP = 0.9, tools = [], maxTokens, thinking = true, signal, onToolCall, onToolExecute, onStream, onRetry, toolContext = {}, mustReply = false, silentSignal = false, localReply = false }) {
-  const toolSchemas = getToolSchemas(tools)
+export async function callLLM({ systemPrompt, message, messages: inputMessages = null, temperature = 0.5, topP = 0.9, tools = [], maxTokens, thinking = true, signal, onToolCall, onToolExecute, onStream, onRetry, toolContext = {}, mustReply = false, silentSignal = false, localReply = false, _streamOnceForTest = null }) {
+  const strictEvaluation = toolContext?.strictEvaluation || null
+  const toolSchemas = getToolSchemas(filterStrictEvaluationTools(tools, strictEvaluation))
 
   // 本地渠道（语音 / TUI）下纯文本即回复：模型直接产出 text 就算回复，runtime 协议兜底会替它
   // 真正投递（含语音 TTS）。社交渠道（微信/Discord/飞书/企微）必须显式 send_message 才能送达外部平台。
@@ -890,17 +896,30 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
 
     let roundResult
     try {
-      roundResult = await streamOnceWithModelFallback({
-        messages,
-        toolSchemas,
-        temperature,
-        topP,
-        maxTokens,
-        thinking,
-        signal,
-        onRetry,
-        onStream,  // 所有轮次均流式推送，让 UI 实时反映工具链执行过程中的模型输出
-      })
+      roundResult = _streamOnceForTest
+        ? await _streamOnceForTest({
+            messages,
+            toolSchemas,
+            temperature,
+            topP,
+            maxTokens,
+            thinking,
+            signal,
+            onRetry,
+            onStream,
+            round,
+          })
+        : await streamOnceWithModelFallback({
+            messages,
+            toolSchemas,
+            temperature,
+            topP,
+            maxTokens,
+            thinking,
+            signal,
+            onRetry,
+            onStream,  // 所有轮次均流式推送，让 UI 实时反映工具链执行过程中的模型输出
+          })
     } catch (err) {
       // 只要**前面的轮次已攒到可投递的回复**（典型：社交渠道第一轮已出答案、第二轮包 send_message 时
       // provider 卡死/报错，甚至重试退避期间被 watchdog 掐），就不能让这个错误/中止把已生成的答案一起
@@ -1069,6 +1088,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       let closerSuppressed = false
       let silentSignalSuppressed = false
       let mediaCloserSuppressed = false
+      let strictSuppressed = false
       if (stopReason) {
         result = makeToolLoopStoppedResult(tc.name, stopReason)
         console.log(`[工具熔断] ${tc.name}: ${stopReason}`)
@@ -1076,6 +1096,11 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         // （比如换 read_file 查日志、search_memory 找历史经验）。同指纹反复失败仍由 sameFailureCounts
         // 拦截，跨工具死循环仍由 recentFingerprints 的 unique threshold 拦截——安全网未失效。
         toolLoopState.consecutiveFailures = 0
+      } else if (isToolForbiddenInStrictEvaluation(strictEvaluation, tc.name)) {
+        strictSuppressed = true
+        result = makeStrictForbiddenToolResult(tc.name, strictEvaluation)
+        recordToolLoopOutcome(toolLoopState, tc.name, fingerprint, result)
+        console.log(`[strict evaluation] 拦截 forbidden tool ${tc.name}`)
       } else {
         // Silent system signal 拦截：本轮是 silent APP_SIGNAL（如 confirm_security_change /
         //   cancel_security_change / app:saveState 等），系统只是在悄悄 refresh agent 上下文，
@@ -1173,10 +1198,10 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           recordToolLoopOutcome(toolLoopState, tc.name, fingerprint, result)
           // 单一权威：一次未被 silent/closer 拦截、未熔断的 send_message 真正执行过 →
           //   用户确实收到了回复。这是 delivered 唯一被置 true 的地方（除文末协议兜底外）。
-          if (tc.name === 'send_message') delivered = true
+          if (tc.name === 'send_message' && !strictSuppressed) delivered = true
           // find_tool 动态装载：把搜到的工具 schema 当场注入本轮 toolSchemas（数组原地 push，
           // 下一轮 streamOnceWithRetry 即带上），模型下一步就能直接调用搜出来的工具。
-          if (tc.name === 'find_tool') injectFoundToolSchemas(result, toolSchemas)
+          if (tc.name === 'find_tool') injectFoundToolSchemas(result, toolSchemas, strictEvaluation)
         }
       }
       throwIfAborted(signal)
@@ -1186,7 +1211,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       // 这样 line ~641 的"沉默退出 nudge"才能在该补刀时正确触发。
       // 被 closer dedup 拦截的 send_message 也算 sentMessage=true（最后一个动作意图是
       // 发消息，主回复已经发过——下一轮注入 "默认结束本轮" nudge 是合适的）。
-      if (tc.name === 'send_message') {
+      if (tc.name === 'send_message' && !strictSuppressed) {
         sentMessage = true
         // 仅对真实发出的（未被 dedup 拦截的）send_message 记录到 turn 历史，避免被拦截的
         // closer / silent signal / media-closer 反过来污染后续判断（已经被拦截的就当没发生）。
@@ -1212,7 +1237,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           mediaPlayedKind = m
         }
       }
-      if (shouldPersistActionLog(tc.name)) {
+      if (!strictSuppressed && shouldPersistActionLog(tc.name)) {
         insertActionLog({
           timestamp: new Date().toISOString(),
           tool: tc.name,
