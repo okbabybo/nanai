@@ -1207,6 +1207,30 @@ const VOICE_CONFIG_KEYS = [
   'volcAsrApiKey', 'volcAsrAppKey', 'volcAsrAccessKey', 'volcAsrResourceId',
 ]
 
+const VOICE_PROVIDER_ALIASES = {
+  macos: 'local',
+  'macos-local': 'local',
+  'local-macos': 'local',
+  mac: 'local',
+  native: 'local',
+  cloud: 'aliyun',
+  dashscope: 'aliyun',
+  bailian: 'aliyun',
+  paraformer: 'aliyun',
+  volcano: 'volcengine',
+  volc: 'volcengine',
+  doubao: 'volcengine',
+  bytedance: 'volcengine',
+  iflytek: 'xunfei',
+}
+const VOICE_PROVIDERS = new Set(['local', 'aliyun', 'volcengine', 'tencent', 'xunfei'])
+
+export function normalizeVoiceProvider(provider, fallback = 'aliyun') {
+  const raw = String(provider || '').trim().toLowerCase()
+  const normalized = VOICE_PROVIDER_ALIASES[raw] || raw
+  return VOICE_PROVIDERS.has(normalized) ? normalized : fallback
+}
+
 function isValidAliyunAsrKey(value) {
   return /^sk-[A-Za-z0-9_\-.]{20,}$/.test(String(value || '').trim())
 }
@@ -1223,7 +1247,7 @@ const CHAT_PROVIDERS_WITH_AMBIGUOUS_SK_KEYS = new Set([
 export function getVoiceConfig() {
   let stored = {}
   try { stored = JSON.parse(fs.readFileSync(paths.configFile, 'utf-8'))?.voice || {} } catch {}
-  const result = { voiceProvider: stored.voiceProvider || 'aliyun' }
+  const result = { voiceProvider: normalizeVoiceProvider(stored.voiceProvider || stored.provider || 'aliyun') }
   for (const key of VOICE_CONFIG_KEYS) {
     if (key === 'voiceProvider') continue
     result[key] = { configured: !!(stored[key]) }
@@ -1244,6 +1268,10 @@ export function setVoiceConfig(updates) {
   for (const [key, val] of Object.entries(updates)) {
     if (!VOICE_CONFIG_KEYS.includes(key)) continue
     const trimmed = String(val || '').trim()
+    if (key === 'voiceProvider') {
+      next[key] = normalizeVoiceProvider(trimmed, next.voiceProvider || current.provider || 'aliyun')
+      continue
+    }
     if (key === 'aliyunApiKey' && trimmed && !isValidAliyunAsrKey(trimmed)) {
       console.warn('[voice-config] Ignoring invalid Aliyun ASR key format; expected DashScope sk-* API key')
       continue
