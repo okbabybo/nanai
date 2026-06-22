@@ -706,35 +706,25 @@ export function buildUncertaintyCheckpointNudge(totalCalls) {
   return `You have run ${totalCalls} tool calls this turn and still have not delivered a result to the user. Pause for one beat — this many steps without converging is itself a signal. The issue may not be the current action; it may be the plan.\n\nIn <think>, ask yourself honestly: am I actually converging on the goal, or am I unsure and pushing forward anyway? Then pick one:\n- If the plan is off, re-read the goal (and current_task if you set one) and re-plan instead of adding more steps.\n- If you are not sure a previous step actually worked, verify it with one read-only tool rather than stacking more actions on an unverified assumption.\n- If you are genuinely stuck, tell the user what you have done, what is blocking you, and what you need — do not keep silently grinding.\nThis is a one-time internal checkpoint; do not narrate it to the user, just course-correct.`
 }
 
-function requiresToolForRequest(text = '') {
-  const input = String(text || '')
-  const fileIntent = /(sandbox|文件|目录|创建|新建|写入|读取|删除|列出|保存|test-\d+|\.txt|\.json|\.md|\.js|\.html|\.css)/i.test(input)
-    && /(创建|新建|写入|读取|删除|列出|保存|改|修改|生成|create|write|read|delete|list|save)/i.test(input)
-  const commandIntent = /(执行命令|运行命令|跑命令|exec|command|npm|node|git|powershell|cmd)/i.test(input)
-  const webIntent = /(打开网页|抓取|联网|搜索|查询最新|fetch|url|https?:\/\/)/i.test(input)
-  return fileIntent || commandIntent || webIntent
-}
-
 // 中途纠正 nudge 是以 role:'user' 注入的，模型容易误当成"用户在说话"而生成一句面向用户的
 // 反应（如"你说得对…"），把它当成回复发出去。所有这类内部纠正都追加这句，明确它是运行时内部
 // 指令、不要向用户复述/道歉/引用——只管纠正动作。对齐 buildUncertaintyCheckpointNudge 的做法。
 const INTERNAL_NUDGE_SUFFIX = '\n\n(This is an internal runtime instruction, not a message from the user. Do not quote it, apologize for it, or mention it to the user — just produce the corrected action/reply.)'
 
-function buildMissingToolNudge(userMessage = '') {
-  return `The user's request requires a real tool call, not a textual claim. Do not say it is done unless the tool result proves it.\nUser request:\n${String(userMessage || '').slice(0, 600)}\n\nCall the appropriate tool now. For sandbox file creation or editing, call write_file with the exact path and content, then call send_message after the write_file result returns.${INTERNAL_NUDGE_SUFFIX}`
-}
-
-// 设计决策（2026-06，第一性原理重构）：此处曾有 detectFakeToolCall / buildFakeToolCallNudge，
-// 以及下方循环里的"假记忆"检测——它们靠扫描模型正文、匹配工具名子串或"记住了/完成"等关键词，
-// 来猜测"模型嘴上说调了工具、实际没调"。这是错的层：自由文本本身欠定"是否在断言一次动作"，
-// 而"列出你有哪些工具""我可以用 recall_memory 帮你查"这类正确回答必然含工具名，于是必然误报。
-// 更糟的是误报后果与置信度严重不匹配——它会 allContent='' 抹掉已成形的好答案，并以 role:'user'
-// 追问，让模型误以为用户在指责它，从而吐出一句面向用户的"你说得对…"非相关回复替换掉原答案。
+// 设计决策（2026-06，第一性原理重构）：此处曾有三支"猜测模型在假装干活"的检测，现已全部删除：
+//   1. detectFakeToolCall：扫模型正文、匹配工具名子串 → 判"嘴上说调了实际没调"
+//   2. 假记忆检测：扫正文匹配"记住了/完成"关键词且没调 upsert_memory → 判假承诺
+//   3. missingToolNudge：扫**用户**消息（requiresToolForRequest 的文件/命令/联网关键词）∧ !sawToolCall
+//      → 判"用户要求了动作但模型没真正执行"，于是 allContent='' 抹掉答案 + 以 role:'user' 逼调工具
+// 三者是同一个错的层：自由文本（无论模型的还是用户的）本身欠定"是否在断言/要求一次动作"。
+// 第 3 支看似只读"真相信号 sawToolCall"，但它的另一半 requiresToolForRequest 仍是关键词扫描——
+// "你有几个执行命令的工具""你会联网搜索吗"这类**关于工具的元问题**必然含"执行命令/搜索"等词，
+// 于是被误判成动作请求。后果与前两支完全一致、且更隐蔽：它会 allContent='' 抹掉已成形（语音轮
+// 甚至已经念出口）的正确答案，再以 role:'user' 追问，模型误以为被质疑，吐出"你说得对…"重答一遍
+// ——用户那边就是"同一个问题被回答两遍、第二遍像重启"。详见 test-no-fake-tool-detection.js 场景 3。
 //
-// 真相源是运行时已精确掌握的工具日志（sawToolCall / toolCallLog），不是模型的散文。
-// 因此删除所有"扫正文猜调用"的检测；唯一保留的硬守卫只用真相信号：
-//   requiresToolForRequest(message) ∧ !sawToolCall（见下方循环的 missingToolNudge）。
-// 这条只在用户高置信地请求了文件/命令/联网动作、却没有任何工具执行时才触发，零正文扫描、零误伤。
+// 真相源是运行时的工具日志（sawToolCall / toolCallLog），不是任何一方的散文。"该调没调"这件事
+// 无法从文本可靠推断，因此不再做这层检测；漏调 send_message 仍有文末协议兜底真正投递，不会静默。
 
 function throwIfAborted(signal) {
   if (!signal?.aborted) return
@@ -833,7 +823,6 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
   //   delivered 是"整轮有没有发出去过"（用于决定要不要兜底）。closer 被拦时主回复通常已把 delivered 置 true。
   let delivered = false
   let finalNudgeUsed = false
-  let missingToolNudgeUsed = false
   let plainTextReplyNudgeUsed = false
   let emptyReplyNudgeUsed = false
   // 层 3：本 turn 是否已发过"不确定回退"软检查点（一 turn 一次，见 buildUncertaintyCheckpointNudge）。
@@ -936,15 +925,6 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
 
     // 无工具调用：本轮结束；若工具后空回复，再补一轮明确的最终回复指令。
     if (effectiveToolCalls.length === 0) {
-      if (!sawToolCall && requiresToolForRequest(message) && !missingToolNudgeUsed) {
-        allContent = ''
-        messages.push({
-          role: 'user',
-          content: buildMissingToolNudge(message),
-        })
-        missingToolNudgeUsed = true
-        continue
-      }
       // 用户消息回复但只产出了 plain text，完全没调任何工具（包括 send_message）。
       //
       // 与 finalNudge 的区别：finalNudge 处理"调过工具但最后没补 send_message"（sawToolCall=true），
@@ -967,8 +947,9 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         plainTextReplyNudgeUsed = true
         continue
       }
-      // 注：原"伪工具调用检测"与"假记忆声称检测"两支已删除——它们靠扫正文猜调用，必然误伤
-      // "列出你的工具""我可以用 X 帮你"这类正确回答（详见文件上方 throwIfAborted 前的设计决策）。
+      // 注：原"伪工具调用检测""假记忆声称检测""missingToolNudge"三支已全部删除——它们都靠扫
+      // 模型正文或用户输入的关键词来猜动作，必然误伤"列出你的工具""你有几个执行命令的工具"这类
+      // 正确回答/元问题（详见文件上方 INTERNAL_NUDGE_SUFFIX 前的设计决策注释）。
       // 安全网：工具已结束、最近一次工具不是 send_message、且模型本轮也没继续动作。
       // 不再用 !allContent.trim() 做守卫——跨轮累积的旁白会让这个守卫错误地静默 break，
       // 真正可靠的信号是 sentMessage（line 691 在每个工具后维护）。

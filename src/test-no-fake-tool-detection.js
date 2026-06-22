@@ -72,6 +72,33 @@ try {
     assert.equal(result.content, memReply, '原样返回——不被抹掉或替换为辩护文本')
     console.log('PASS "记住了"纯文本回复不触发假记忆检测')
   }
+
+  // ── 场景 3：关于"执行命令"工具的元问题（曾触发 missingToolNudge 误判，导致回答两遍）──
+  // 用户问的是"你有几个执行命令的工具"——一个**关于工具的元问题**，模型凭系统提示直接用纯文本
+  // 回答即可、无需调任何工具。但这句话字面含"执行命令"，旧 requiresToolForRequest 的 commandIntent
+  // 会判定成"用户要求执行命令"，于是 missingToolNudge 触发：allContent='' 抹掉答案 + 以 role:'user'
+  // 逼调工具 → 模型重答一遍。语音轮第一遍已念出口，用户就听到"同一个问题被回答两遍"。
+  // missingToolNudge 已删，本测试钉死：含命令/文件/联网关键词的元问题也必须一轮收尾、原样返回。
+  {
+    const toolCount =
+      '执行命令的工具分了四种：exec_quick_command、exec_command、exec_task_command、' +
+      'exec_background_command，再加上 download_file、kill_process、list_processes，一共七个。'
+    let rounds = 0
+    const result = await callLLM({
+      systemPrompt: 'system',
+      message: '你现在执行命令的那个工具有多少个？',
+      tools: ['send_message', 'exec_command'],
+      mustReply: true,
+      localReply: true,   // 语音轮：第一遍流式已念出口，绝不能被抹掉重答
+      _streamOnceForTest: async () => {
+        rounds += 1
+        return { content: toolCount, reasoningContent: '', aborted: false, toolCalls: [] }
+      },
+    })
+    assert.equal(rounds, 1, '关于命令工具的元问题只调用模型一轮（missingToolNudge 已删，不再误判成动作请求）')
+    assert.equal(result.content, toolCount, '原样返回——已念出口的答案不被抹掉，不会重答第二遍')
+    console.log('PASS 含"执行命令"关键词的元问题不触发 missingToolNudge 误判')
+  }
 } finally {
   closeDBForTest?.()
   fs.rmSync(tmp, { recursive: true, force: true })
