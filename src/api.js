@@ -945,6 +945,40 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       return
     }
 
+    // GET /media/chat/:filename — serve content-addressed chat media from data/media
+    //   收发消息时把图片/媒体按 sha256 落到 paths.mediaDir，这里按文件名回读。
+    //   文件名即 <sha256>.<ext>，basename 已去掉任何路径分隔；再做一次目录逃逸校验兜底。
+    if (req.method === 'GET' && url.pathname.startsWith('/media/chat/')) {
+      const raw = url.pathname.slice('/media/chat/'.length)
+      const filename = path.basename(decodeURIComponent(raw))
+      const mediaDir = paths.mediaDir
+      const filePath = path.join(mediaDir, filename)
+      const resolvedFile = path.resolve(filePath)
+      const resolvedDir  = path.resolve(mediaDir)
+      if (!resolvedFile.startsWith(resolvedDir + path.sep)) {
+        res.writeHead(403); res.end('forbidden'); return
+      }
+      const mimeMap = {
+        '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+        '.gif': 'image/gif', '.webp': 'image/webp', '.bmp': 'image/bmp',
+        '.mp4': 'video/mp4', '.webm': 'video/webm', '.mov': 'video/quicktime',
+      }
+      const contentType = mimeMap[path.extname(filename).toLowerCase()] || 'application/octet-stream'
+      try {
+        const stat = fs.statSync(filePath)
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Content-Length': stat.size,
+          // 内容寻址：同名文件内容永不改变，可长缓存。
+          'Cache-Control': 'public, max-age=31536000, immutable',
+        })
+        fs.createReadStream(filePath).pipe(res)
+      } catch {
+        res.writeHead(404); res.end('media not found')
+      }
+      return
+    }
+
     // GET /audio/:filename — serve sandbox audio files
     if (req.method === 'GET' && url.pathname.startsWith('/audio/')) {
       const filename = path.basename(url.pathname)
@@ -1039,6 +1073,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
       const status = getActivationStatus()
       const minimaxKey = getMinimaxKey()
       jsonResponse(res, 200, {
+        agent_name: getAgentName(),
         llm: {
           activated: status.activated,
           provider: status.provider,
@@ -1054,6 +1089,26 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           configured: !!(globalThis.process?.env?.MINIMAX_API_KEY || minimaxKey),
         },
         network: getNetworkConfig(),
+      })
+      return
+    }
+
+    // POST /settings/agent-name — update the persisted display name
+    if (req.method === 'POST' && url.pathname === '/settings/agent-name') {
+      const chunks = []
+      req.on('data', chunk => chunks.push(chunk))
+      req.on('end', () => {
+        try {
+          const { agentName, agent_name } = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}')
+          const trimmedName = validateAgentName(agentName ?? agent_name)
+          if (trimmedName) setConfig('agent_name', trimmedName)
+          const name = getAgentName()
+          setStickyEvent('agent_name_updated', { name })
+          emitEvent('agent_name_updated', { name })
+          jsonResponse(res, 200, { ok: true, agent_name: name })
+        } catch (err) {
+          jsonResponse(res, 400, { ok: false, error: err.message })
+        }
       })
       return
     }

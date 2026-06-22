@@ -42,6 +42,26 @@ const deniedCommandText = await executeTool('exec_command', {
 const deniedCommand = parseJsonResult(deniedCommandText)
 assert(deniedCommand?.ok === false && deniedCommand?.error === 'permission denied', 'exec_command rejects parent directory access', deniedCommandText)
 
+const quickCommandText = await executeTool('exec_quick_command', {
+  command: 'node -e "console.log(\'quick-ok\')"',
+}, { source: 'smoke-test' })
+const quickCommand = parseJsonResult(quickCommandText)
+assert(quickCommand?.ok === true && quickCommand?.command_profile === 'quick' && /quick-ok/.test(quickCommand?.stdout || ''), 'exec_quick_command uses quick profile', quickCommandText)
+
+const taskCommandText = await executeTool('exec_task_command', {
+  command: 'Write-Output task-ok',
+  timeout: 5,
+}, { source: 'smoke-test' })
+const taskCommand = parseJsonResult(taskCommandText)
+assert(taskCommand?.ok === true && taskCommand?.command_profile === 'task' && /task-ok/.test(taskCommand?.stdout || ''), 'exec_task_command uses task profile', taskCommandText)
+
+const badDownloadText = await executeTool('download_file', {
+  url: 'file:///not-allowed',
+  output_path: 'smoke/download.txt',
+}, { source: 'smoke-test' })
+const badDownload = parseJsonResult(badDownloadText)
+assert(badDownload?.ok === false && badDownload?.tool === 'download_file', 'download_file validates URL scheme', badDownloadText)
+
 const deleteResultText = await executeTool('delete_file', { path: testPath }, { source: 'smoke-test' })
 const deleteResult = parseJsonResult(deleteResultText)
 assert(deleteResult?.ok === true && deleteResult?.verified_absent === true, 'delete_file returns absence verification', deleteResultText)

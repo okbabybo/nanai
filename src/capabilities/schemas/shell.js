@@ -12,9 +12,78 @@ export const shellSchemas = {
           background: { type: 'boolean', description: 'Run in the background, default false. Set true when starting a server.' },
           timeout: { type: 'number', description: 'Foreground execution timeout in seconds, default 30, max 120.' },
           cwd: { type: 'string', description: 'Subdirectory within the sandbox to run the command in, e.g. "myproject". Avoids cd-chaining. Must be a relative path.' },
-          promote_to_background: { type: 'boolean', description: 'When foreground execution times out, promote to background instead of killing the process. Returns the new pid.' }
+          promote_to_background: { type: 'boolean', description: 'When foreground execution times out, promote to background instead of killing the process. Returns the new pid.' },
+          profile: { type: 'string', enum: ['quick', 'task', 'background', 'download', 'strict'], description: 'Optional execution profile. Prefer the dedicated exec_quick_command / exec_task_command / exec_background_command / download_file tools when possible.' }
         },
         required: ['command']
+      }
+    }
+  },
+
+  exec_quick_command: {
+    type: 'function',
+    function: {
+      name: 'exec_quick_command',
+      description: 'Run an instant, non-interactive command such as pwd, whoami, rg, dir, Get-ChildItem, or a short read-only inspection. Uses the quick profile with short timeout and fast-lane optimization when safe. Do not use for installs, builds, tests, downloads, servers, prompts, pagers, or commands that may wait for user input.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'Short read-only command to run.' },
+          timeout: { type: 'number', description: 'Timeout in seconds, default 10, max 30.' },
+          cwd: { type: 'string', description: 'Subdirectory within the sandbox to run the command in. Must be relative while the exec sandbox is enabled.' }
+        },
+        required: ['command']
+      }
+    }
+  },
+
+  exec_task_command: {
+    type: 'function',
+    function: {
+      name: 'exec_task_command',
+      description: 'Run a finite but potentially slower command such as npm install, npm test, build, git clone, pip install, or a script that should eventually exit. Uses a longer timeout than quick commands and does not use the persistent-shell fast lane.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'Finite command that may take some time but should exit.' },
+          timeout: { type: 'number', description: 'Timeout in seconds, default 60, max 120.' },
+          cwd: { type: 'string', description: 'Subdirectory within the sandbox to run the command in. Must be relative while the exec sandbox is enabled.' },
+          promote_to_background: { type: 'boolean', description: 'When timeout is reached, promote to background instead of killing the process.' }
+        },
+        required: ['command']
+      }
+    }
+  },
+
+  exec_background_command: {
+    type: 'function',
+    function: {
+      name: 'exec_background_command',
+      description: 'Start a long-running command such as a dev server, watcher, tail -f, or service. Immediately returns a pid. Use list_processes to inspect output and kill_process to stop it.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'Long-running command to start in the background.' },
+          cwd: { type: 'string', description: 'Subdirectory within the sandbox to run the command in. Must be relative while the exec sandbox is enabled.' }
+        },
+        required: ['command']
+      }
+    }
+  },
+
+  download_file: {
+    type: 'function',
+    function: {
+      name: 'download_file',
+      description: 'Download a URL to a local file using structured parameters instead of shelling out through curl, wget, Invoke-WebRequest, or Start-BitsTransfer. This is better for downloads because timeout, redirects, sandbox path checks, parent directory creation, progress events, and file existence verification are handled by the runtime. During long downloads the runtime emits download_start/download_progress/download_complete events that can notify the agent/UI; the final result includes bytes, bytes_human, elapsed_ms, and a progress snapshot.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'HTTP or HTTPS URL to download.' },
+          output_path: { type: 'string', description: 'Destination file path. Relative paths are resolved inside the sandbox; absolute paths require the file sandbox to be disabled.' },
+          timeout: { type: 'number', description: 'Timeout in seconds, default 120, max 120.' }
+        },
+        required: ['url', 'output_path']
       }
     }
   },

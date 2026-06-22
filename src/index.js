@@ -834,6 +834,11 @@ function detectChannelSwitch(msg, conversationWindow) {
   return false
 }
 
+function isSoftwareInstallRequest(text = '') {
+  const t = String(text || '').toLowerCase()
+  return /安装软件|安装应用|安装程序|安装客户端|装软件|装应用|装程序|装客户端|下载安装包|下载软件|软件下载|软件安装包|安装包|官方安装包|安装微信|装微信|下载微信|微信安装包|安装剪映|装剪映|下载剪映|剪映安装包|capcut|install app|install software|install program|install client|download installer|download setup|software installer|setup\.exe|\.msi|\.exe/.test(t)
+}
+
 // Build systemEnv on demand: inject each block based on keywords in the message
 function buildSystemEnv(msg) {
   const text = (typeof msg === 'string' ? msg : msg?.content || '').toLowerCase()
@@ -843,7 +848,7 @@ function buildSystemEnv(msg) {
     blocks.push(getSystemInfoBlock())
   if (/桌面|快捷方式|桌面文件|桌面应用|已安装|浏览器|启动程序/.test(text))
     blocks.push(getDesktopBlock())
-  if (/软件|应用|程序|客户端|工具|装了什么|用了什么|代理|科学上网|翻墙|\bvpn\b|\bproxy\b|clash|mihomo|v2ray|xray|sing-?box|shadowrocket|shadowsocks|wireguard|tailscale|zerotier|openvpn/.test(text))
+  if (isSoftwareInstallRequest(text) || /软件|应用|程序|客户端|工具|装了什么|用了什么|代理|科学上网|翻墙|\bvpn\b|\bproxy\b|clash|mihomo|v2ray|xray|sing-?box|shadowrocket|shadowsocks|wireguard|tailscale|zerotier|openvpn/.test(text))
     blocks.push(getInstalledSoftwareBlock())
   if (/天气|气温|温度|下雨|下雪|晴天|气候|风力|风速|台风|位置|城市|在哪个城市/.test(text))
     blocks.push(getGeoWeatherBlock())
@@ -1046,6 +1051,9 @@ async function runTurn(input, label, msg = null) {
     }
     if (fastUserPath) {
       directions.unshift('Current turn is a real-time external user message. Understand it quickly and reply directly with send_message. If no slow tool is needed, send exactly one final answer and stop. Use heavier tools only when the reply depends on them. During longer execution, send progress only for meaningful new findings or blockers; do not send an acknowledgement and then a near-duplicate final answer.')
+    }
+    if (!isTick && isSoftwareInstallRequest(input)) {
+      directions.unshift('Software install workflow: first use injected installed-software context to see whether the app is already installed. If installation is still needed, prefer official vendor sources found via web_search/fetch_url; download installers with download_file so progress events are available. Save installers under sandbox downloads. Only run an installer with exec_task_command/exec_command after you have a concrete local file path or official installer command. Read the tool result before claiming success; if the installer opens a GUI, tell the user exactly what is now waiting for them instead of pretending it completed silently.')
     }
     if (isVoiceChannel(msg?.channel)) {
       directions.push('Voice mode: answer with judgment and meaning first. Do not read out an inventory. If details are merely evidence, compress them into the situation they prove.')

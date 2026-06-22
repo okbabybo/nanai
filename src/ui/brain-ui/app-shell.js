@@ -190,6 +190,17 @@ const createSettingsModal = () => `
             ${createThemeSwitcher()}
           </div>
           <div class="settings-section">
+            <div class="settings-section-label">AI 名字</div>
+            <div class="settings-row">
+              <label class="settings-label" for="settings-agent-name">显示名</label>
+              <input class="settings-input" id="settings-agent-name" type="text" maxlength="32" autocomplete="off" spellcheck="false" placeholder="小白龙">
+            </div>
+            <div class="settings-row-action">
+              <button class="settings-save-btn" id="settings-save-agent-name" type="button">保存</button>
+              <span class="settings-feedback" id="settings-agent-name-feedback"></span>
+            </div>
+          </div>
+          <div class="settings-section">
             <div class="settings-section-label">记忆节点图</div>
             <p class="settings-hint">开启后在背景显示记忆节点力导向图，会占用额外 CPU/GPU 资源，低配设备建议关闭。修改后需刷新页面生效。</p>
             <div class="settings-row">

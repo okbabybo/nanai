@@ -907,6 +907,24 @@ body {
   white-space: normal;
 }
 
+/* 聊天里的图片消息（内容寻址 /media/chat/*）：缩略展示，点击在新标签打开原图 */
+.msg-image-link {
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+
+.msg-image {
+  max-width: min(260px, 100%);
+  max-height: 320px;
+  width: auto;
+  height: auto;
+  border-radius: 10px;
+  border: 1px solid var(--line, rgba(255, 255, 255, 0.12));
+  object-fit: contain;
+  cursor: zoom-in;
+}
+
 .msg-body h1,
 .msg-body h2,
 .msg-body h3,

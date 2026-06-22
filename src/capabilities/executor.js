@@ -21,7 +21,7 @@ import { execUIHide, execUIRegister, execUIShow, execUIUpdate, execUIPatch, exec
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
-import { execCommand, execKillProcess, execListProcesses } from './tools/shell.js'
+import { execBackgroundCommand, execCommand, execDownloadFile, execKillProcess, execListProcesses, execQuickCommand, execTaskCommand } from './tools/shell.js'
 import { execBrowserRead, execFetchUrl, execWebSearch } from './tools/web.js'
 import { execDowngradeMemory, execMergeMemories, execProbeMemory, execRecallMemory, execSearchMemory, execSkipConsolidation, execSkipRecognition, execUpsertMemory } from './tools/memory.js'
 import { execManageReminder } from './tools/reminders.js'
@@ -33,6 +33,7 @@ export { autoSpeakForVoiceReply } from './tools/media.js'
 export { persistAppState } from './tools/ui.js'
 
 import { config, setSecurity } from '../config.js'
+import { paths } from '../paths.js'
 import { lookupReplyTarget, normalizeChannel, suggestProactiveChannel } from '../identity.js'
 
 // P0-2：识别 send_message 末尾是否留了"非澄清型 follow-up question"。
@@ -63,6 +64,25 @@ function inferOutboundMediaKind(filePath = '') {
   if (OUTBOUND_IMAGE_EXTS.has(ext)) return 'image'
   if (OUTBOUND_VIDEO_EXTS.has(ext)) return 'video'
   return 'file'
+}
+
+// 把聊天媒体复制进受管的内容寻址仓库（data/media/<sha256>.<ext>），返回供前端渲染的稳定 URL。
+//   - 内容寻址：同图只存一份；原文件被同名替换成别的内容时哈希必然不同，老消息仍指向老副本。
+//   - 与原始路径解耦：截图/临时文件即便事后被删，聊天记录里的图依旧能显示。
+// 失败（如磁盘错误）时返回 null，调用方退化为仅文本标记，不阻断消息发送。
+function persistChatMedia(resolvedPath) {
+  try {
+    const buf = fs.readFileSync(resolvedPath)
+    const hash = crypto.createHash('sha256').update(buf).digest('hex')
+    const ext = path.extname(resolvedPath).toLowerCase()
+    const storedName = `${hash}${ext}`
+    const storedPath = path.join(paths.mediaDir, storedName)
+    if (!fs.existsSync(storedPath)) fs.writeFileSync(storedPath, buf)
+    return `/media/chat/${storedName}`
+  } catch (err) {
+    console.warn(`[media] 聊天媒体落盘失败（退化为纯文本标记）：${err.message}`)
+    return null
+  }
 }
 
 function normalizeOptionalPath(value) {
@@ -108,12 +128,23 @@ function prepareOutboundMedia({ image_path, media_path } = {}) {
     kind,
     fileName: path.basename(resolvedPath),
     size: stat.size,
+    storedUrl: persistChatMedia(resolvedPath),
   }
 }
 
 function formatOutboundConversationContent(text, media) {
   if (!media) return text
-  const marker = `[${media.kind}] ${media.fileName}`
+  // 有内容寻址副本时写成可渲染的引用：图片用 markdown 图片语法，其它媒体用链接。
+  //   markdown.js 会把 /media/ 开头的本地端点渲染成 <img>/<a>，截图删了也还能从副本显示。
+  // 没拿到副本（落盘失败）才退回旧的纯文本标记，保证消息仍能发出。
+  let marker
+  if (media.storedUrl) {
+    marker = media.kind === 'image'
+      ? `![${media.fileName}](${media.storedUrl})`
+      : `[${media.kind} · ${media.fileName}](${media.storedUrl})`
+  } else {
+    marker = `[${media.kind}] ${media.fileName}`
+  }
   return text ? `${text}\n${marker}` : marker
 }
 
@@ -149,6 +180,14 @@ async function executeToolUnchecked(name, args, context = {}) {
         return await execMakeDir(args, context)
       case 'exec_command':
         return await execCommand(args, context)
+      case 'exec_quick_command':
+        return await execQuickCommand(args, context)
+      case 'exec_task_command':
+        return await execTaskCommand(args, context)
+      case 'exec_background_command':
+        return await execBackgroundCommand(args, context)
+      case 'download_file':
+        return await execDownloadFile(args, context)
       case 'kill_process':
         return await execKillProcess(args)
       case 'list_processes':

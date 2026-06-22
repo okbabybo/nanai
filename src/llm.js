@@ -715,53 +715,26 @@ function requiresToolForRequest(text = '') {
   return fileIntent || commandIntent || webIntent
 }
 
+// 中途纠正 nudge 是以 role:'user' 注入的，模型容易误当成"用户在说话"而生成一句面向用户的
+// 反应（如"你说得对…"），把它当成回复发出去。所有这类内部纠正都追加这句，明确它是运行时内部
+// 指令、不要向用户复述/道歉/引用——只管纠正动作。对齐 buildUncertaintyCheckpointNudge 的做法。
+const INTERNAL_NUDGE_SUFFIX = '\n\n(This is an internal runtime instruction, not a message from the user. Do not quote it, apologize for it, or mention it to the user — just produce the corrected action/reply.)'
+
 function buildMissingToolNudge(userMessage = '') {
-  return `The user's request requires a real tool call, not a textual claim. Do not say it is done unless the tool result proves it.\nUser request:\n${String(userMessage || '').slice(0, 600)}\n\nCall the appropriate tool now. For sandbox file creation or editing, call write_file with the exact path and content, then call send_message after the write_file result returns.`
+  return `The user's request requires a real tool call, not a textual claim. Do not say it is done unless the tool result proves it.\nUser request:\n${String(userMessage || '').slice(0, 600)}\n\nCall the appropriate tool now. For sandbox file creation or editing, call write_file with the exact path and content, then call send_message after the write_file result returns.${INTERNAL_NUDGE_SUFFIX}`
 }
 
-// 检测模型是否在文字中"描述"了工具调用而没有真正调用
-// 返回检测到的规范工具名，或 null
-function detectFakeToolCall(content, toolNames) {
-  if (!content || !toolNames.length) return null
-
-  // 去掉下划线后做模糊匹配（处理模型写成 settickinterval 而非 set_tick_interval 的情况）
-  const normalizedContent = content.toLowerCase().replace(/[_\s]/g, '')
-  for (const name of toolNames) {
-    if (name.length < 5) continue  // 太短的名字容易误判
-    if (normalizedContent.includes(name.toLowerCase().replace(/_/g, ''))) {
-      return name
-    }
-  }
-
-  // 检测中文动作括号伪调用，如 [心跳启动中] [调用成功] [执行中]
-  if (/[\[【][^\]】]{2,20}(中|完成|成功|ing)[\]】]/.test(content)) {
-    return '(action claim)'
-  }
-
-  return null
-}
-
-function buildFakeToolCallNudge(toolName, toolSchemas = []) {
-  const isGeneric = toolName === '(action claim)'
-  const header = isGeneric
-    ? 'You wrote a bracketed action description (e.g. [xxx中]) but did not call any tool.'
-    : `Your reply mentioned the tool "${toolName}" in text but did not invoke it through the function-call mechanism.`
-
-  let schemaHint = ''
-  if (!isGeneric) {
-    const schema = toolSchemas.find(s => s?.function?.name === toolName)
-    if (schema) {
-      const props = schema.function?.parameters?.properties || {}
-      const required = schema.function?.parameters?.required || []
-      const paramList = Object.entries(props)
-        .map(([k, v]) => `${required.includes(k) ? k + '*' : k} (${v.type || 'any'})`)
-        .join(', ')
-      if (paramList) schemaHint = `\nRequired call format: ${toolName}({ ${paramList} })  (* = required)`
-    }
-  }
-
-  return `${header} Writing text about what a tool does has no effect on the system — the action did not happen.\n\nYou must now invoke the tool using the function-call interface, not describe it in prose.${schemaHint}`
-}
+// 设计决策（2026-06，第一性原理重构）：此处曾有 detectFakeToolCall / buildFakeToolCallNudge，
+// 以及下方循环里的"假记忆"检测——它们靠扫描模型正文、匹配工具名子串或"记住了/完成"等关键词，
+// 来猜测"模型嘴上说调了工具、实际没调"。这是错的层：自由文本本身欠定"是否在断言一次动作"，
+// 而"列出你有哪些工具""我可以用 recall_memory 帮你查"这类正确回答必然含工具名，于是必然误报。
+// 更糟的是误报后果与置信度严重不匹配——它会 allContent='' 抹掉已成形的好答案，并以 role:'user'
+// 追问，让模型误以为用户在指责它，从而吐出一句面向用户的"你说得对…"非相关回复替换掉原答案。
+//
+// 真相源是运行时已精确掌握的工具日志（sawToolCall / toolCallLog），不是模型的散文。
+// 因此删除所有"扫正文猜调用"的检测；唯一保留的硬守卫只用真相信号：
+//   requiresToolForRequest(message) ∧ !sawToolCall（见下方循环的 missingToolNudge）。
+// 这条只在用户高置信地请求了文件/命令/联网动作、却没有任何工具执行时才触发，零正文扫描、零误伤。
 
 function throwIfAborted(signal) {
   if (!signal?.aborted) return
@@ -862,13 +835,9 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
   let finalNudgeUsed = false
   let missingToolNudgeUsed = false
   let plainTextReplyNudgeUsed = false
-  let fakeToolNudgeUsed = false
   let emptyReplyNudgeUsed = false
-  let falseMemoryNudgeUsed = false
   // 层 3：本 turn 是否已发过"不确定回退"软检查点（一 turn 一次，见 buildUncertaintyCheckpointNudge）。
   let uncertaintyNudgeUsed = false
-  // 跟踪本次 callLLM 调用中实际调过的工具名，用于检测"声称做了 X 但没真的调 X"的 false-claim。
-  const calledTools = new Set()
   const toolLoopState = createToolLoopState()
   // Turn-level send_message 历史：target_id → [{ length, isCloser }]。
   // 用于 closer dedup 安全网：当 LLM 在已经发过实质消息后又试图补一条短客套尾巴
@@ -993,40 +962,13 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         allContent = ''
         messages.push({
           role: 'user',
-          content: `You produced reply text but did NOT call the send_message tool. Plain assistant text in this runtime is only debug exhaust — it does not reach the user through the normal channel. To actually deliver the reply you must wrap it in a send_message tool call.\n\nYour draft was:\n"""\n${draft.slice(0, 1000)}\n"""\n\nCall send_message now with target_id = the user who sent the previous message and content = the same text (or a tightened version). Do not write more prose this turn — only invoke the tool.`,
+          content: `You produced reply text but did NOT call the send_message tool. Plain assistant text in this runtime is only debug exhaust — it does not reach the user through the normal channel. To actually deliver the reply you must wrap it in a send_message tool call.\n\nYour draft was:\n"""\n${draft.slice(0, 1000)}\n"""\n\nCall send_message now with target_id = the user who sent the previous message and content = the same text (or a tightened version). Do not write more prose this turn — only invoke the tool.${INTERNAL_NUDGE_SUFFIX}`,
         })
         plainTextReplyNudgeUsed = true
         continue
       }
-      // 检测伪工具调用：模型在文字里描述了调用但没有真正发起 function-call
-      if (!fakeToolNudgeUsed && content) {
-        const fakeToolName = detectFakeToolCall(content, tools)
-        if (fakeToolName) {
-          console.log(`[伪调用检测] 模型文字中发现 "${fakeToolName}"，注入修正 nudge`)
-          messages.push({ role: 'assistant', content })
-          messages.push({ role: 'user', content: buildFakeToolCallNudge(fakeToolName, toolSchemas) })
-          allContent = ''
-          fakeToolNudgeUsed = true
-          continue
-        }
-      }
-      // 检测"声称记住了但根本没调 upsert_memory"的 false-claim：用户基于这条承诺做决策，
-      // 但记忆其实没存进数据库——下次问就找不到了。trace 实证过这个 bug（search_memory 后
-      // 直接生成"记住了..."文本，memories_written count=0）。
-      if (!falseMemoryNudgeUsed && content && tools.includes('upsert_memory') && !calledTools.has('upsert_memory')) {
-        const falseMemoryClaim = /(?:记住了|记下了?|已记住|已经记住|我会记着|我记下了|存好了|存下了|已存)/
-        if (falseMemoryClaim.test(content)) {
-          console.log('[假记忆检测] 模型声称记住但未调 upsert_memory，注入修正 nudge')
-          messages.push({ role: 'assistant', content })
-          messages.push({
-            role: 'user',
-            content: 'You wrote "记住了" (or a similar memory-claim) but you did NOT actually call upsert_memory. That claim is false — the fact is not in the database, and the user will not see it next time. Call upsert_memory NOW with the fact you said you would remember, then call send_message to confirm to the user.',
-          })
-          allContent = ''
-          falseMemoryNudgeUsed = true
-          continue
-        }
-      }
+      // 注：原"伪工具调用检测"与"假记忆声称检测"两支已删除——它们靠扫正文猜调用，必然误伤
+      // "列出你的工具""我可以用 X 帮你"这类正确回答（详见文件上方 throwIfAborted 前的设计决策）。
       // 安全网：工具已结束、最近一次工具不是 send_message、且模型本轮也没继续动作。
       // 不再用 !allContent.trim() 做守卫——跨轮累积的旁白会让这个守卫错误地静默 break，
       // 真正可靠的信号是 sentMessage（line 691 在每个工具后维护）。
@@ -1044,7 +986,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         allContent = ''
         messages.push({
           role: 'user',
-          content: `Tool results have returned, but you have not given the user a final reply yet. Based on the available tool results, ${deliverInstruction}. If information is insufficient, explain what was found, the failure source, and the limitations; do not end silently.${localReply ? '' : ' Do NOT repeat what you just wrote in plain text — wrap your reply in a send_message call.'}`,
+          content: `Tool results have returned, but you have not given the user a final reply yet. Based on the available tool results, ${deliverInstruction}. If information is insufficient, explain what was found, the failure source, and the limitations; do not end silently.${localReply ? '' : ' Do NOT repeat what you just wrote in plain text — wrap your reply in a send_message call.'}${INTERNAL_NUDGE_SUFFIX}`,
         })
         finalNudgeUsed = true
         continue
@@ -1052,7 +994,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       if (mustReply && !sentMessage && !allContent.trim() && !emptyReplyNudgeUsed) {
         messages.push({
           role: 'user',
-          content: `You ended this user-message turn without producing any reply. You must now ${deliverInstruction}, with a brief, useful response. If no tools are needed, answer directly. Do not end silently.`,
+          content: `You ended this user-message turn without producing any reply. You must now ${deliverInstruction}, with a brief, useful response. If no tools are needed, answer directly. Do not end silently.${INTERNAL_NUDGE_SUFFIX}`,
         })
         emptyReplyNudgeUsed = true
         continue
@@ -1227,7 +1169,6 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
       } else {
         sentMessage = false
       }
-      calledTools.add(tc.name)
       // 标记本 turn 播放过音乐/视频——之后模型补的播放确认短收尾会被静音（见上面 mediaCloser 判定）。
       if (tc.name === 'media_mode') {
         const m = String(normalizedArgs.mode || '')

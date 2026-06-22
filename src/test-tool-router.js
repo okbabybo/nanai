@@ -308,6 +308,16 @@ function hasNone(tools, names) {
 
 // ====== 16) Schema 数量对比（仅观察，不强制断言）======
 {
+  const tools = selectTools({
+    messageBody: '帮我安装剪映，最好下载官方安装包',
+    isTick: false,
+    senderId: 'ID:000001',
+  })
+  assert(hasAll(tools, ['web_search', 'fetch_url', 'download_file', 'exec_task_command', 'exec_command', 'list_dir']),
+    `16) software install intent -> web + download + exec + fs tools injected (got: ${tools.join(',')})`)
+}
+
+{
   const fullSetTools = selectTools({
     messageBody: '帮我读 D:\\readme.md，搜下 https://google.com，运行命令，提醒我，画张图，听首歌',
     isTick: true,

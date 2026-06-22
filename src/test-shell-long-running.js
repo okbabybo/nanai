@@ -1,6 +1,7 @@
 // Run: node src/test-shell-long-running.js
 
-import { getCommandFailureHint, isLikelyLongRunningCommand } from './capabilities/tools/shell.js'
+import { getCommandFailureHint } from './capabilities/tools/shell.js'
+import { classifyCommandProfile, isLikelyLongRunningCommand } from './capabilities/tools/command-profiles.js'
 
 let failed = 0
 function assert(cond, label) {
@@ -20,6 +21,11 @@ assert(isLikelyLongRunningCommand('journalctl -u nginx -f'), 'detects journalctl
 assert(isLikelyLongRunningCommand('npm run dev'), 'detects dev server')
 assert(!isLikelyLongRunningCommand('ssh root@1.2.3.4 "uptime && pm2 list"'), 'does not mark normal ssh command')
 assert(!isLikelyLongRunningCommand('Get-ChildItem'), 'does not mark normal command')
+assert(classifyCommandProfile('Get-ChildItem').mode === 'quick', 'classifies quick inspection commands')
+assert(classifyCommandProfile('npm install').mode === 'task', 'classifies finite task commands')
+assert(classifyCommandProfile('npm run dev').mode === 'background', 'classifies dev servers as background')
+assert(classifyCommandProfile('curl https://example.com/file.zip -o file.zip').mode === 'download', 'classifies shell downloads')
+assert(classifyCommandProfile('git reset --hard').mode === 'strict', 'classifies strict command families')
 assert(
   /broken quoting/i.test(getCommandFailureHint('ssh root@1.2.3.4 "bash -lc \'"', 'bash: -c: line 2: syntax error: unexpected end of file')),
   'diagnoses broken remote ssh quoting'

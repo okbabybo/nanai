@@ -67,7 +67,6 @@ function startShell() {
   stdoutBuf = ''
   stderrBuf = ''
   current = null
-  busy = false
   c.stdout.setEncoding('utf8')
   c.stderr.setEncoding('utf8')
   c.stdout.on('data', (d) => { stdoutBuf += d; tryComplete() })
@@ -132,16 +131,20 @@ function killShell() {
 export async function runOnPersistentShell(command, execCwd, timeoutMs) {
   if (!IS_WIN) return null
   if (busy) return null // 上一条还没完，直接让调用方走独立进程，不排队
+  // 必须在任何 await 之前同步抢占 busy。否则并发调用（LLM 一轮里并行发多个只读 tool
+  // call 是常态）会各自在 await ready 处让出，恢复后都看到 busy=false 而同时进入，
+  // 交错写入共享的长驻 shell stdin、互相顶掉 current/stdoutBuf。
+  busy = true
 
   try {
     if (!child) startShell()
     await ready
   } catch {
+    busy = false
     killShell()
     return null
   }
-  if (busy || !child) return null
-  busy = true
+  if (!child) { busy = false; return null }
 
   return new Promise((resolve) => {
     const id = 'SENT_' + rand()

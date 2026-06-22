@@ -41,6 +41,10 @@ const TOOL_RISK = {
   complete_startup_self_check: 'low',
   delete_file: 'high',
   exec_command: 'high',
+  exec_quick_command: 'medium',
+  exec_task_command: 'high',
+  exec_background_command: 'high',
+  download_file: 'high',
   kill_process: 'high',
   web_search: 'high',
   fetch_url: 'high',
@@ -79,7 +83,7 @@ export function evaluateToolPolicy(name, args = {}, context = {}) {
   if (blockedTools.includes(name)) {
     return { allowed: false, risk, reason: `工具 "${name}" 已被安全策略禁用` }
   }
-  if (name === 'exec_command') {
+  if (['exec_command', 'exec_quick_command', 'exec_task_command', 'exec_background_command'].includes(name)) {
     const reasons = isDangerousShellCommand(args.command || args.cmd || '')
     if (reasons.length) return { allowed: false, risk, reason: reasons.join('; ') }
   }

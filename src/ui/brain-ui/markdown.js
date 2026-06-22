@@ -19,6 +19,17 @@ function safeHref(rawUrl) {
   return "";
 }
 
+// 图片 src 白名单：http(s)、data:image、以及站内绝对路径（如内容寻址的 /media/chat/...）。
+// 比 safeHref 多放行 data:image、少放行 mailto/#，避免把不可渲染的目标塞进 <img src>。
+function safeImageSrc(rawUrl) {
+  const url = String(rawUrl ?? "").trim();
+  if (!url) return "";
+  if (/^https?:/i.test(url)) return url;
+  if (/^data:image\//i.test(url)) return url;
+  if (url.startsWith("/")) return url;
+  return "";
+}
+
 function renderInlineMarkdown(text) {
   const codeTokens = [];
   let html = String(text ?? "").replace(/`([^`]+)`/g, (_, code) => {
@@ -28,6 +39,15 @@ function renderInlineMarkdown(text) {
   });
 
   html = escapeHtml(html);
+  // 图片 ![alt](src) 必须在链接规则之前处理，否则链接规则会先吃掉 [alt](src) 而漏掉前导的 "!"。
+  // 渲染成可点开原图的缩略图（外层 <a> 在新标签打开，src 不安全时退化为 alt 文本）。
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, alt, src) => {
+    const safeUrl = safeImageSrc(src);
+    if (!safeUrl) return alt;
+    const altAttr = escapeAttr(alt);
+    return `<a href="${escapeAttr(safeUrl)}" target="_blank" rel="noopener noreferrer" class="msg-image-link">` +
+      `<img src="${escapeAttr(safeUrl)}" alt="${altAttr}" title="${altAttr}" class="msg-image" loading="lazy"></a>`;
+  });
   html = html.replace(/\[([^\]]+)\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g, (_, label, href) => {
     const safeUrl = safeHref(href);
     if (!safeUrl) return label;

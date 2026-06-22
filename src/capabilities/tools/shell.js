@@ -1,10 +1,14 @@
 import path from 'path'
+import fs from 'fs'
 import { spawn, spawnSync } from 'child_process'
+import { Readable, Transform } from 'stream'
+import { pipeline } from 'stream/promises'
 import { nowTimestamp } from '../../time.js'
 import { emitEvent } from '../../events.js'
 import { config } from '../../config.js'
 import { createMergedAbortSignal, throwIfAborted } from '../abort-utils.js'
 import { SANDBOX_ROOT, assertInSandbox } from '../sandbox.js'
+import { classifyCommandProfile, resolveProfileTimeout } from './command-profiles.js'
 import { runOnPersistentShell } from './persistent-shell.js'
 
 // 后台进程注册表：pid → { process, command, cwd, startedAt, outputLines, status, exitCode, exitedAt }
@@ -18,6 +22,8 @@ const BG_MAX_ENTRIES = 50
 const FG_BUFFER_MAX = 512 * 1024
 
 const IS_WIN = process.platform === 'win32'
+const DOWNLOAD_PROGRESS_INTERVAL_MS = 1500
+const DOWNLOAD_PROGRESS_MILESTONES = [5, 10, 25, 50, 75, 90, 100]
 
 /**
  * 跨平台 spawn shell 命令，确保中文输出不乱码。
@@ -82,6 +88,99 @@ function resolveExecCwd(cwdArg) {
 
 function toolJson(payload) {
   return JSON.stringify(payload, null, 2)
+}
+
+function formatBytes(bytes = 0) {
+  const n = Number(bytes) || 0
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+function createDownloadProgressReporter({ url, outputPath, startedAt }) {
+  const state = {
+    lastEmitAt: 0,
+    lastMilestoneIndex: -1,
+    loaded: 0,
+    total: 0,
+    percent: null,
+  }
+
+  const emitProgress = (phase, force = false) => {
+    const now = Date.now()
+    const percent = state.total > 0 ? Math.min(100, Math.floor((state.loaded / state.total) * 100)) : null
+    const milestoneIndex = percent == null
+      ? -1
+      : DOWNLOAD_PROGRESS_MILESTONES.findLastIndex((m) => percent >= m)
+    const crossedMilestone = milestoneIndex > state.lastMilestoneIndex
+    const due = now - state.lastEmitAt >= DOWNLOAD_PROGRESS_INTERVAL_MS
+    if (!force && !crossedMilestone && !due) return
+
+    state.percent = percent
+    state.lastEmitAt = now
+    if (crossedMilestone) state.lastMilestoneIndex = milestoneIndex
+    const payload = {
+      tool: 'download_file',
+      phase,
+      url,
+      output_path: outputPath,
+      loaded_bytes: state.loaded,
+      total_bytes: state.total || null,
+      loaded_human: formatBytes(state.loaded),
+      total_human: state.total ? formatBytes(state.total) : '',
+      percent,
+      elapsed_ms: now - startedAt,
+    }
+    emitEvent('download_progress', payload)
+    emitEvent('action', {
+      tool: 'download_file',
+      summary: percent == null
+        ? `正在下载：${formatBytes(state.loaded)}`
+        : `正在下载：${percent}%`,
+      detail: path.basename(outputPath),
+    })
+  }
+
+  return {
+    update(loaded, total = state.total) {
+      state.loaded = Number(loaded) || 0
+      state.total = Number(total) || 0
+      emitProgress('downloading')
+    },
+    complete(finalBytes) {
+      state.loaded = Number(finalBytes) || state.loaded
+      if (!state.total || state.loaded > state.total) state.total = state.loaded
+      emitProgress('complete', true)
+      emitEvent('download_complete', {
+        tool: 'download_file',
+        url,
+        output_path: outputPath,
+        bytes: state.loaded,
+        bytes_human: formatBytes(state.loaded),
+        elapsed_ms: Date.now() - startedAt,
+      })
+    },
+    fail(error) {
+      emitEvent('download_failed', {
+        tool: 'download_file',
+        url,
+        output_path: outputPath,
+        loaded_bytes: state.loaded,
+        total_bytes: state.total || null,
+        percent: state.percent,
+        elapsed_ms: Date.now() - startedAt,
+        error,
+      })
+    },
+    snapshot() {
+      return {
+        loaded_bytes: state.loaded,
+        total_bytes: state.total || null,
+        percent: state.percent,
+      }
+    },
+  }
 }
 
 // 截断展示用输出：保留头部 + 尾部，丢弃中间。
@@ -265,17 +364,140 @@ export async function execCommand(args, context = {}) {
   }
 }
 
+async function execProfiledCommand(toolName, profile, args, context = {}, overrides = {}) {
+  const result = await execCommand({ ...args, ...overrides, profile }, context)
+  try {
+    const obj = JSON.parse(result)
+    obj.tool = toolName
+    obj.delegated_tool = 'exec_command'
+    obj.command_profile = obj.command_profile || profile
+    return JSON.stringify(obj, null, 2)
+  } catch {
+    return result
+  }
+}
+
+export async function execQuickCommand(args, context = {}) {
+  return execProfiledCommand('exec_quick_command', 'quick', args, context, { background: false, promote_to_background: false })
+}
+
+export async function execTaskCommand(args, context = {}) {
+  return execProfiledCommand('exec_task_command', 'task', args, context, { background: false })
+}
+
+export async function execBackgroundCommand(args, context = {}) {
+  return execProfiledCommand('exec_background_command', 'background', args, context, { background: true })
+}
+
+function resolveDownloadOutputPath(outputPath) {
+  const raw = String(outputPath || '').trim()
+  if (!raw) throw new Error('missing output_path')
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) throw new Error('output_path must be a local file path, not a URL')
+  const resolved = path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(SANDBOX_ROOT, raw)
+  assertInSandbox(resolved)
+  return resolved
+}
+
+export async function execDownloadFile(args, context = {}) {
+  throwIfAborted(context.signal)
+  const url = String(args.url || '').trim()
+  if (!/^https?:\/\//i.test(url)) {
+    return toolJson({ ok: false, tool: 'download_file', error: 'url must start with http:// or https://' })
+  }
+
+  let outputPath
+  try {
+    outputPath = resolveDownloadOutputPath(args.output_path || args.path)
+  } catch (err) {
+    return toolJson({ ok: false, tool: 'download_file', url, error: err.message })
+  }
+
+  const timeoutMs = resolveProfileTimeout(args, { defaultTimeoutSec: 120, maxTimeoutSec: 120 })
+  const merged = createMergedAbortSignal(context.signal, timeoutMs)
+  const startedAt = Date.now()
+  const tempPath = `${outputPath}.download-${process.pid}-${Date.now()}.tmp`
+  const reporter = createDownloadProgressReporter({ url, outputPath, startedAt })
+  try {
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true })
+    emitEvent('download_start', { tool: 'download_file', url, output_path: outputPath })
+    emitEvent('action', { tool: 'download_file', summary: '开始下载文件', detail: path.basename(outputPath) })
+    const res = await fetch(url, { signal: merged?.signal, redirect: 'follow' })
+    if (!res.ok) {
+      reporter.fail(`download failed with HTTP ${res.status}`)
+      return toolJson({
+        ok: false,
+        tool: 'download_file',
+        url,
+        output_path: outputPath,
+        status: res.status,
+        error: `download failed with HTTP ${res.status}`,
+      })
+    }
+
+    const totalBytes = Number(res.headers.get('content-length')) || 0
+    if (res.body) {
+      let loadedBytes = 0
+      const progressStream = new Transform({
+        transform(chunk, _encoding, callback) {
+          loadedBytes += chunk.length || 0
+          reporter.update(loadedBytes, totalBytes)
+          callback(null, chunk)
+        },
+      })
+      await pipeline(Readable.fromWeb(res.body), progressStream, fs.createWriteStream(tempPath))
+    } else {
+      const bytes = Buffer.from(await res.arrayBuffer())
+      fs.writeFileSync(tempPath, bytes)
+      reporter.update(bytes.length, totalBytes || bytes.length)
+    }
+
+    if (fs.existsSync(outputPath)) fs.rmSync(outputPath, { force: true })
+    fs.renameSync(tempPath, outputPath)
+    const stat = fs.statSync(outputPath)
+    reporter.complete(stat.size)
+    return toolJson({
+      ok: true,
+      tool: 'download_file',
+      command_profile: 'download',
+      url,
+      output_path: outputPath,
+      bytes: stat.size,
+      bytes_human: formatBytes(stat.size),
+      content_type: res.headers.get('content-type') || '',
+      elapsed_ms: Date.now() - startedAt,
+      progress: reporter.snapshot(),
+      hint: 'Download completed and the output file exists.',
+    })
+  } catch (err) {
+    try { if (fs.existsSync(tempPath)) fs.rmSync(tempPath, { force: true }) } catch {}
+    const error = err?.name === 'AbortError' ? 'download aborted' : (err?.message || 'download failed')
+    reporter.fail(error)
+    return toolJson({
+      ok: false,
+      tool: 'download_file',
+      command_profile: 'download',
+      url,
+      output_path: outputPath,
+      timed_out: merged?.signal?.aborted && String(merged.signal.reason || '').includes('Timeout'),
+      progress: reporter.snapshot(),
+      error,
+    })
+  } finally {
+    merged?.cleanup()
+  }
+}
+
 async function execCommandImpl(args, context = {}) {
   throwIfAborted(context.signal)
   const command = String(args.command || args.cmd || '').trim()
   if (!command) return toolJson({ ok: false, tool: 'exec_command', error: 'missing command' })
 
-  const background = args.background === true || args.background === 'true'
-  const autoPromote = isLikelyLongRunningCommand(command)
+  const profile = classifyCommandProfile(command, args.profile || args.command_profile)
+  const background = args.background === true || args.background === 'true' || profile.mode === 'background'
+  const autoPromote = profile.promoteToBackground || isLikelyLongRunningCommand(command)
   const promoteToBackground = args.promote_to_background === true || args.promote_to_background === 'true' || autoPromote
   // schema 说明单位是秒，转换为毫秒；兼容旧调用（如果传入 >1000 视为已是毫秒）
-  const rawTimeout = Number(args.timeout) || 30
-  const timeoutMs = Math.max(1000, Math.min(rawTimeout < 1000 ? rawTimeout * 1000 : rawTimeout, 120000))
+  const timeoutMs = resolveProfileTimeout(args, profile)
 
   let execCwd
   try {
@@ -285,15 +507,15 @@ async function execCommandImpl(args, context = {}) {
   }
 
   console.log(`[exec_command] ${background ? '[后台]' : '[前台]'} ${command} (cwd: ${execCwd})`)
-  emitEvent('exec_command', { command, background, cwd: execCwd, auto_promote: autoPromote })
+  emitEvent('exec_command', { command, background, cwd: execCwd, auto_promote: autoPromote, command_profile: profile.mode })
 
   if (background) {
-    return execBackground(command, execCwd)
+    return execBackground(command, execCwd, profile.mode)
   }
 
   // 快路径：安全只读快命令复用长驻 shell，省去每条 ~550ms 冷启动。
   // 任何不适用（忙、软超时卡住、启动失败、abort 已触发）都返回 null，无缝降级到慢路径。
-  if (!promoteToBackground && !context.signal?.aborted && isFastLaneEligible(command)) {
+  if (!promoteToBackground && profile.useFastLane && !context.signal?.aborted && isFastLaneEligible(command)) {
     try {
       const r = await runOnPersistentShell(command, execCwd, timeoutMs)
       if (r) {
@@ -302,6 +524,7 @@ async function execCommandImpl(args, context = {}) {
           ok: r.exit === 0,
           tool: 'exec_command',
           mode: 'foreground',
+          command_profile: profile.mode,
           fast_lane: true,
           command,
           cwd: execCwd,
@@ -315,7 +538,7 @@ async function execCommandImpl(args, context = {}) {
     } catch { /* 降级到慢路径 */ }
   }
 
-  return execForeground(command, timeoutMs, context.signal, execCwd, promoteToBackground)
+  return execForeground(command, timeoutMs, context.signal, execCwd, promoteToBackground, profile.mode)
 }
 
 // 注册一个后台进程：挂好输出捕获与退出处理，统一供 execBackground 与前台超时提升复用。
@@ -372,7 +595,7 @@ function pruneBackgroundProcesses() {
   }
 }
 
-function execBackground(command, execCwd) {
+function execBackground(command, execCwd, commandProfile = 'background') {
   const child = spawnShellCommand(command, {
     cwd: execCwd,
     detached: false,
@@ -386,6 +609,7 @@ function execBackground(command, execCwd) {
       ok: false,
       tool: 'exec_command',
       mode: 'background',
+      command_profile: commandProfile,
       command,
       cwd: execCwd,
       error: 'process did not start',
@@ -398,6 +622,7 @@ function execBackground(command, execCwd) {
     ok: true,
     tool: 'exec_command',
     mode: 'background',
+    command_profile: commandProfile,
     command,
     cwd: execCwd,
     pid,
@@ -406,7 +631,7 @@ function execBackground(command, execCwd) {
   })
 }
 
-function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground = false) {
+function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground = false, commandProfile = 'task') {
   return new Promise((resolve) => {
     throwIfAborted(signal)
     const child = spawnShellCommand(command, { cwd: execCwd })
@@ -434,6 +659,7 @@ function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground
         ok: false,
         tool: 'exec_command',
         mode: 'foreground',
+        command_profile: commandProfile,
         command,
         cwd: execCwd,
         aborted: true,
@@ -448,6 +674,7 @@ function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground
         ok: false,
         tool: 'exec_command',
         mode: 'foreground',
+        command_profile: commandProfile,
         command,
         cwd: execCwd,
         aborted: true,
@@ -471,6 +698,7 @@ function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground
           ok: true,
           tool: 'exec_command',
           mode: 'promoted_to_background',
+          command_profile: commandProfile,
           command,
           cwd: execCwd,
           pid,
@@ -484,6 +712,7 @@ function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground
           ok: false,
           tool: 'exec_command',
           mode: 'foreground',
+          command_profile: commandProfile,
           command,
           cwd: execCwd,
           timed_out: true,
@@ -518,6 +747,7 @@ function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground
         ok: code === 0,
         tool: 'exec_command',
         mode: 'foreground',
+        command_profile: commandProfile,
         command,
         cwd: execCwd,
         exit_code: code,
@@ -534,6 +764,7 @@ function execForeground(command, timeoutMs, signal, execCwd, promoteToBackground
         ok: false,
         tool: 'exec_command',
         mode: 'foreground',
+        command_profile: commandProfile,
         command,
         cwd: execCwd,
         stdout: trimCommandOutput(stdout),

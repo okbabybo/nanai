@@ -1050,7 +1050,7 @@ const AI_ACTIVITY_IDLE_AFTER_MS = 15_000;
 const AI_TOOL_GROUPS = {
   "扫描文件": new Set(["read_file", "list_dir"]),
   "改动文件": new Set(["write_file", "make_dir", "delete_file"]),
-  "执行命令": new Set(["exec_command", "kill_process", "list_processes"]),
+  "执行命令": new Set(["exec_command", "exec_quick_command", "exec_task_command", "exec_background_command", "download_file", "kill_process", "list_processes"]),
   "上网": new Set(["fetch_url", "web_search", "browser_read"]),
   "调取记忆": new Set(["search_memory", "recall_memory", "probe_memory", "upsert_memory", "merge_memories", "downgrade_memory"]),
   "推送界面": new Set(["ui_show", "ui_update", "ui_hide", "ui_patch", "ui_register", "focus_banner"]),
@@ -2460,6 +2460,9 @@ function initTTSSettings() {
   const llmKeyToggle    = document.getElementById("settings-llm-key-toggle");
   const saveLlmBtn      = document.getElementById("settings-save-llm");
   const llmFeedback     = document.getElementById("settings-llm-feedback");
+  const agentNameInput  = document.getElementById("settings-agent-name");
+  const saveAgentNameBtn = document.getElementById("settings-save-agent-name");
+  const agentNameFeedback = document.getElementById("settings-agent-name-feedback");
   const tempSlider      = document.getElementById("settings-temperature");
   const tempVal         = document.getElementById("settings-temperature-val");
   const saveTempBtn     = document.getElementById("settings-save-temperature");
@@ -2487,6 +2490,7 @@ function initTTSSettings() {
   let cachedProviders = null;
   let cachedLlm = null;
   let llmKeyVisible = false;
+  const agentNameRe = /^[一-龥A-Za-z0-9 _-]+$/;
 
   overlay.querySelectorAll(".settings-nav-item").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2609,6 +2613,7 @@ function initTTSSettings() {
       const { llm, minimax, providers } = data;
       if (providers) cachedProviders = providers;
       cachedLlm = llm;
+      if (agentNameInput) agentNameInput.value = data.agent_name || agentName || DEFAULT_AGENT_NAME;
       refreshConfigSummary({ llm, minimax });
       populateProviderSelect(providers, llm.provider || "auto");
       if (providerSelect && llm.provider) providerSelect.value = llm.provider;
@@ -3267,6 +3272,39 @@ function initTTSSettings() {
       applyCustomProviderUI(providerSelect.value);
     });
   }
+
+  saveAgentNameBtn?.addEventListener("click", async () => {
+    const nextName = agentNameInput?.value?.trim() || "";
+    if (nextName.length > 32) {
+      showFeedback(agentNameFeedback, "AI 名字不能超过 32 个字符", true);
+      return;
+    }
+    if (nextName && !agentNameRe.test(nextName)) {
+      showFeedback(agentNameFeedback, "AI 名字只允许中文、英文字母、数字、空格、下划线、短横线", true);
+      return;
+    }
+    saveAgentNameBtn.disabled = true;
+    try {
+      const res = await fetch(`${API}/settings/agent-name`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentName: nextName }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        const savedName = data.agent_name || DEFAULT_AGENT_NAME;
+        if (agentNameInput) agentNameInput.value = savedName;
+        setAgentName(savedName);
+        showFeedback(agentNameFeedback, "已保存");
+      } else {
+        showFeedback(agentNameFeedback, data.error || "保存失败", true);
+      }
+    } catch {
+      showFeedback(agentNameFeedback, "请求失败", true);
+    } finally {
+      saveAgentNameBtn.disabled = false;
+    }
+  });
 
   llmKeyToggle?.addEventListener("click", () => {
     setLlmKeyVisible(!llmKeyVisible);
