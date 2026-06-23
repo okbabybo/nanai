@@ -122,22 +122,18 @@ const AI_VIDEO_GEN_BLOCK = `## AI Video Generation (Seedance)
 - Not configured: if generate_video returns error="not_configured", tell the user (plainly) that AI video generation needs a Volcengine Ark (火山方舟) Seedance API key, and that they can just send it to you to auto-configure, e.g. "火山视频 <你的APIKey>"（如有特定模型ID/推理接入点 ep-xxxx 一并发来）. Do not claim a video is being generated until it is actually configured.
 - Wrong model id: if task creation fails with a model/permission error, relay that the model id is likely wrong and ask the user to resend the correct Seedance model id or inference endpoint.`
 
-// 3) WeatherCard Rules —— wttr.in 取数 + ui_show 字段映射
+// 3) Weather Surface Rules —— wttr.in 取数 + ui_set weather kind 字段映射
 const WEATHER_KEYWORD_RE = /天气|温度|气温|下雨|降雨|下雪|台风|雾霾|阴天|晴天|多云|wttr|weather/i
-const WEATHER_CARD_RULES_BLOCK = `### WeatherCard Rules
+const WEATHER_SCENE_RULES_BLOCK = `### Weather Surface Rules
 - The data source must be wttr.in only. Do not use search engines or other weather sites. Use this fixed call:
   fetch_url("https://wttr.in/{city-English-name}?format=j1&lang=zh")
-- Extract the following fields from the returned JSON. Only fill a field that is actually present in the JSON; leave a missing field empty rather than supplying a typical value or a guess:
+- Map the following fields the weather kind actually renders. Only fill a field that is actually present in the JSON; leave a missing field empty rather than supplying a typical value or a guess:
   - city       <- nearest_area[0].areaName[0].value, any language is fine; if missing, use the city the user asked about.
   - temp       <- current_condition[0].temp_C, number
-  - feel       <- current_condition[0].FeelsLikeC, number
   - condition  <- current_condition[0].lang_zh[0].value or weatherDesc[0].value
-  - desc       <- same as condition, or a shorter Chinese description; optional
-  - high       <- weather[0].maxtempC, number
-  - low        <- weather[0].mintempC, number
-  - wind       <- current_condition[0].windspeedKmph + " km/h " + winddir16Point, for example "12 km/h NE"
-  - forecast   <- three items from weather[0..2], each { day:"today"/"tomorrow"/"after tomorrow", high, low, condition }
-- Call: ui_show("WeatherCard", { city, temp, feel, condition, high, low, wind, forecast })`
+  - forecast   <- three items from weather[0..2], each { day:"今天"/"明天"/"后天", low: mintempC, high: maxtempC, condition }
+- Call: ui_set({ id: "weather-<city>", kind: "weather", data: { city, temp, condition, forecast }, intent: "ambient" })
+- To refresh, call ui_set again with the same id.`
 
 // 4) WeChat Connection —— 用户明确要求"连接微信/接入微信"
 const WECHAT_CONNECT_KEYWORD_RE = /连接微信|接入微信|绑定微信|用微信|connect.*wechat/i
@@ -496,13 +492,16 @@ Sandbox status is injected every turn in <context><runtime> as "Sandbox Status".
 - Split tool calls across rounds only when a later call depends on an earlier result, or when the action has side effects such as writing files, deleting files, executing commands, sending messages, creating/canceling reminders, or updating UI.
 - After parallel calls, wait for all results before making the integrated judgment. Do not conclude before the results arrive.
 
-## ACUI Visual Channel
-- You can push visual cards to the user interface with the ui_show tool. The built-in component currently includes WeatherCard.
-- Use UI only when a visual expression is clearer than plain text. If one sentence is enough, do not open a card.
-- After pushing a card, still give a short text reply (see "Reply Delivery" for how — plain text on a local turn, send_message on a social one). Do not let the card replace the conversation.
-- Usually let the user close cards themselves. Cards auto-dismiss after 10 seconds, so active ui_hide is usually unnecessary.
-- To change data in the same card, use ui_update props instead of opening a new card.
-- Supplemental Context may include UI behavior from the past minute. Treat it as context, not as a trigger. Unless the user explicitly asks for help through words or action, do not speak merely because you perceived UI activity.
+## Visual Surfaces
+- Push visual surfaces to the interface with the ui_set tool — the ONE declarative verb. You describe what a surface should BE right now (its content + importance), not commands.
+- Each surface has a stable id, a kind, and data. Reusing the same id updates it in place; a new id adds a surface; remove=true takes it away. The interface owns ALL presentation, layout, and animation — you never specify pixels, position, size, or placement.
+- Use a surface only when structured/visual expression is clearer than plain text. If one sentence is enough, do not open one. Always still give a short text reply alongside (see "Reply Delivery" — plain text on a local turn, send_message on a social one). The surface does not replace the conversation.
+- intent says how important the content is, NOT where it goes:
+  - ambient  — fades by in a corner; transient stuff like weather, status.
+  - inform   — normal information (default).
+  - confront — the user must stop and look / decide; critical reminders, decisions, errors.
+- To change a surface, call ui_set again with the same id. To take it down, ui_set with remove=true — but usually let the user dismiss surfaces themselves.
+- Surfaces currently on screen are listed in Supplemental Context. Treat that as context, not a trigger. Unless the user explicitly asks for help through words or action, do not speak merely because something is on screen.
 
 ## Location And Weather
 - When the user states their city, call set_location to record it.
@@ -515,20 +514,12 @@ Sandbox status is injected every turn in <context><runtime> as "Sandbox Status".
 - send_message routes by the channel parameter: pass nothing (defaults to AUTO) and the system uses the user reachability snapshot — local if they've been active on TUI recently, otherwise the channel they were last seen on. Pass an explicit channel (channel: "WECHAT") to reach them away from the computer.
 - Be considerate of channel: a quick proactive nudge is fine on WeChat, but a long info-dump there is intrusive. Long-form output belongs on TUI.
 
-### hint: Card Shape
-- placement:
-  - "notification" (default): slides into the upper right stack; transient notification content such as weather, reminders, or status.
-  - "center": centered with a translucent backdrop; important content that requires the user to pause and confirm, such as critical reminders, decisions, or errors.
-  - "floating": freely draggable and meant to stay around; tool-like content such as clocks, notes, calculators, or progress panels.
-- size: "sm" | "md" | "lg" | "xl", or a pixel object such as { w: 600, h: 400 }. Default is "md". Use larger sizes for denser information.
-- draggable: defaults to true for floating, false otherwise.
-- modal: defaults to true for center, false otherwise.
-- Example: ui_show({ component: "WeatherCard", props: { city, temp, ... }, hint: { placement: "floating", size: "lg" } }). Morning weather reminders should usually be notification; studying next week's weather should usually be floating + lg. Choose shape from the situation, not from the component name.
-
-### ui_show Rules
-Always use registered components — inline-template and inline-script are not supported. Available components are listed in the tool description. Always pass component + props matching the component's propsSchema.
-- Do not nest backtick template strings inside component code. Prefer normal string concatenation.
-- Call ui_patch at most once per round.
+### Kinds & Composition
+- Render from the kind vocabulary:
+  text { title?, body, footnote? } · metric { label, value, unit?, trend? } · image { url, title?, alt? } · media { kind:"video|audio", url, title?, poster?, autoplay? } · choice { prompt, options:[{ value, label, tone? }] } · weather { city, temp, condition, forecast?:[{ day, low, high, condition }] }
+- For content with no preset kind, compose the layout primitives stack (vertical) / row (horizontal) / col (grid), whose data.children are inline surfaces (each with its own id/kind/data). A bit of layout = a few text/metric/image nested in a stack/row.
+- There is NO HTML / JS / CSS, no inline templates or scripts — that channel does not exist. If a kind seems missing, compose primitives rather than reaching for code.
+- choice upflows a "select" intent (the chosen value) when the user picks; act on it. A surface only displays and reports — never wait inside it for the user; decisions stay with you.
 
 ## Voice Input: Spoken Brevity
 - When \`<runtime>\` shows \`Incoming channel this round: voice\` (or \`语音识别\`), your reply will be spoken aloud by TTS — the user is listening, not reading. Default to one or two short, spoken-sounding sentences.
@@ -596,9 +587,9 @@ Always use registered components — inline-template and inline-script are not s
     prompt += `\n\n${DIAGNOSE_BLOCK}`
   }
 
-  // WeatherCard Rules —— 注意这是 ACUI 主段下的子段，注入到 ui_show Rules 之后位置
+  // Weather Surface Rules —— Visual Surfaces 主段下的子段，注入到 Kinds & Composition 之后位置
   if (shouldInjectWeatherCard(userMessage)) {
-    prompt += `\n\n${WEATHER_CARD_RULES_BLOCK}`
+    prompt += `\n\n${WEATHER_SCENE_RULES_BLOCK}`
   }
 
   // Video Mode
