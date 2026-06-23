@@ -6,6 +6,7 @@ import crypto from 'crypto'
 import { fileURLToPath } from 'url'
 import { WebSocketServer } from 'ws'
 import { handleSceneConnection, setSceneIntentHandler } from './scene/scene-server.js'
+import { sceneStore } from './scene/scene-store.js'
 import { pushMessage } from './queue.js'
 import { getDB, getConfig, setConfig, insertUISignal, upsertMediaHistory, getMediaHistory, updateLastJarvisConversationContent, getRecentRecallAudits, getRecentExtractAudits, getRecallAuditStats, getExtractAuditStats } from './db.js'
 import { emitEvent, addSSEClient, removeSSEClient, addACUIClient, removeACUIClient, removeActiveUICard, emitUICommand, flushStickyEvents, setStickyEvent } from './events.js'
@@ -1889,6 +1890,31 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     const data = msg.data || {}
     const id = insertUISignal({ type: `scene.intent.${name}`, target: msg.surface || null, payload: data, ts: msg.ts || Date.now() })
     emitEvent('ui_signal', { id, type: name, target: msg.surface, payload: data })
+
+    // 安全确认回流：security-confirm-* 的 select intent 走 core 侧确定性处理（不卷入 Agent 回合）。
+    // 待应用的变更存在该 surface 的 data.pending（execSetSecurity 写入），这里回查后直接 apply，
+    // 与旧 ACUI confirm_security_change 行为一致；提前 return，不走下面的通用 APP_SIGNAL push。
+    if (name === 'select' && surface.startsWith('security-confirm-')) {
+      const pending = sceneStore.get(surface)?.data?.pending || {}
+      sceneStore.set(surface, null)   // 无论确认/取消都先收起确认 surface
+      if (data.value === 'confirm') {
+        const updates = {}
+        if (pending.file_sandbox !== undefined) updates.fileSandbox = pending.file_sandbox === true
+        if (pending.exec_sandbox !== undefined) updates.execSandbox = pending.exec_sandbox === true
+        const result = Object.keys(updates).length > 0 ? setSecurity(updates) : getSecurity()
+        const desc = Object.entries(updates).map(([k, v]) => `${k}=${v}`).join(', ')
+        pushMessage(
+          'SYSTEM',
+          `[security settings updated] User confirmed changes: ${desc}. changed_at=${result.updatedAt || 'not recorded'}\n(Internal context refresh only. Do NOT call send_message.)`,
+          'APP_SIGNAL',
+          { queue: 'background', persist: false, silent: true },
+        )
+      } else {
+        pushMessage('SYSTEM', '[security settings change] User cancelled — settings unchanged\n(Internal context refresh only. Do NOT call send_message.)', 'APP_SIGNAL', { queue: 'background', persist: false, silent: true })
+      }
+      return
+    }
+
     if (!SCENE_PASSIVE_INTENTS.has(name)) {
       pushMessage(`UI:${surface}`, `[UI intent surface=${surface} name=${name}]\n${JSON.stringify(data, null, 2)}`, 'APP_SIGNAL')
     }

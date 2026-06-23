@@ -204,6 +204,47 @@
 .w-fc-ico { font-size: 22px; }
 .w-fc-temp { font-size: 13px; }
 
+/* ── kind: selfcheck ────────────────────────────────────────────────── */
+.k-selfcheck { min-width: 248px; }
+.sc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.sc-icon { font-size: 17px; line-height: 1; }
+.sc-head .sc-title { font-size: 13px; font-weight: 600; color: var(--text-dim); letter-spacing: 0.03em; flex: 1; margin: 0; text-transform: none; }
+.sc-counter { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+/* running 态 */
+.sc-running { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.sc-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; animation: sc-pulse 1.2s ease-in-out infinite; }
+@keyframes sc-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.7); } }
+.sc-name { font-size: 15px; font-weight: 600; color: var(--accent); }
+.sc-scan { height: 2px; background: rgba(91, 157, 255, 0.14); border-radius: 1px; overflow: hidden; }
+.sc-scan-bar { height: 100%; width: 30%; border-radius: 1px; background: var(--accent); animation: sc-scan 1.6s ease-in-out infinite; }
+@keyframes sc-scan { 0% { transform: translateX(-100%); opacity: 0.8; } 50% { opacity: 1; } 100% { transform: translateX(380%); opacity: 0.8; } }
+/* done 态 */
+.sc-results { display: flex; flex-direction: column; gap: 7px; margin-bottom: 12px; }
+.sc-row { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.sc-row-icon { width: 14px; text-align: center; font-weight: 700; flex-shrink: 0; }
+.sc-row-name { flex: 1; color: var(--text); }
+.sc-row-note { font-size: 12px; color: var(--text-dim); max-width: 120px; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sc-row.is-ok .sc-row-icon { color: var(--good); }
+.sc-row.is-error .sc-row-icon { color: var(--danger); }
+.sc-row.is-skipped .sc-row-icon { color: var(--text-dim); }
+.sc-foot { display: flex; align-items: center; gap: 7px; padding-top: 11px; border-top: 1px solid var(--line); }
+.sc-overall { font-size: 13px; font-weight: 600; }
+.sc-foot.is-ok .sc-overall, .sc-foot.is-ok .sc-overall-icon { color: var(--good); }
+.sc-foot.is-degraded .sc-overall, .sc-foot.is-degraded .sc-overall-icon { color: #facc15; }
+.sc-foot.is-error .sc-overall, .sc-foot.is-error .sc-overall-icon { color: var(--danger); }
+
+/* ── kind: awakening (建议 intent=ambient) ──────────────────────────── */
+.k-awakening { min-width: 240px; }
+.aw-head { display: flex; align-items: center; gap: 7px; margin-bottom: 9px; }
+.aw-emoji { font-size: 16px; line-height: 1; }
+.aw-title { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aw-badge { font-size: 10px; font-weight: 600; letter-spacing: 0.05em; color: var(--text-dim); background: rgba(91, 157, 255, 0.12); border: 1px solid rgba(91, 157, 255, 0.2); border-radius: 20px; padding: 2px 8px; flex-shrink: 0; }
+.aw-finding { font-size: 14px; color: var(--text-dim); line-height: 1.55; margin-bottom: 11px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.aw-dots { display: flex; gap: 4px; }
+.aw-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(154, 167, 184, 0.22); transition: background 200ms var(--ease-mo); }
+.aw-dot.active { background: var(--accent); }
+.aw-dot.done { background: rgba(74, 222, 128, 0.55); }
+
 /* ── 排版原语:stack / row / col ────────────────────────────────────── */
 .k-layout { display: flex; }
 .lay-stack { flex-direction: column; }

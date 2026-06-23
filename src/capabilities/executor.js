@@ -19,6 +19,8 @@ import { TOOL_GROUPS } from '../memory/tool-router.js'
 import { throwIfAborted } from './abort-utils.js'
 import { execUIHide, execUIRegister, execUIShow, execUIUpdate, execUIPatch, execManageApp } from './tools/ui.js'
 import { execUISet } from './tools/scene.js'
+import { sceneStore } from '../scene/scene-store.js'
+import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
 import { inferToolStatus, writeToolAuditLog } from './tool-audit.js'
 import { execDeleteFile, execListDir, execMakeDir, execReadFile, execWriteFile } from './tools/filesystem.js'
@@ -975,17 +977,36 @@ function execSetSecurity({ file_sandbox, exec_sandbox, reason = '' }) {
   if (file_sandbox === undefined && exec_sandbox === undefined) {
     return toolJson({ ok: false, error: '至少指定 file_sandbox 或 exec_sandbox 之一' })
   }
-  if (!hasACUIClient()) {
-    return toolJson({ ok: false, error: '当前没有 UI 客户端，无法弹出确认框。请告知用户到设置页面手动修改安全沙箱配置。' })
+  if (sceneClientCount() === 0) {
+    return toolJson({ ok: false, error: '当前没有界面客户端，无法弹出确认框。请告知用户到设置页面手动修改安全沙箱配置。' })
   }
 
-  const props = { reason: reason || '' }
-  if (file_sandbox !== undefined) props.file_sandbox = file_sandbox
-  if (exec_sandbox !== undefined) props.exec_sandbox = exec_sandbox
+  // 沙箱变更摘要拼进 choice 的 prompt（声明式 Scene 没有专用安全卡，复用通用 choice kind）。
+  const changeLines = []
+  if (file_sandbox !== undefined) changeLines.push(`文件沙箱将${file_sandbox ? '开启' : '关闭'}`)
+  if (exec_sandbox !== undefined) changeLines.push(`执行沙箱将${exec_sandbox ? '开启' : '关闭'}`)
+  const prompt = [reason, changeLines.join('；')].filter(Boolean).join('\n') || '确认安全设置变更？'
+
+  // 待应用的变更随 surface 走（存 data.pending）：让 SceneStore 继续做唯一真相源，
+  // 用户点确认时由 scene intent handler 回查本 surface 取出 pending 直接 apply（不另开并行 state）。
+  // choice kind 只读 prompt/options，会忽略 pending；manifest 也只暴露 id/kind/intent，不泄露给 Agent。
+  const pending = {}
+  if (file_sandbox !== undefined) pending.file_sandbox = file_sandbox
+  if (exec_sandbox !== undefined) pending.exec_sandbox = exec_sandbox
 
   const id = `security-confirm-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`
-  emitUICommand({ op: 'mount', id, component: 'SecurityConfirmCard', props, hint: { placement: 'center' } })
-  addActiveUICard(id, { component: 'SecurityConfirmCard' })
+  sceneStore.set(id, {
+    kind: 'choice',
+    intent: 'confront',   // 用户必须停下来决策：背景退后、聚焦居中
+    data: {
+      prompt,
+      options: [
+        { value: 'confirm', label: '确认', tone: 'danger' },
+        { value: 'cancel',  label: '取消', tone: 'default' },
+      ],
+      pending,
+    },
+  })
   emitEvent('action', { tool: 'set_security', summary: '等待用户确认安全设置变更', detail: id })
   // 工具返回 message 明确告诉模型"卡片已经在 UI 上、用户能直接看到"——避免模型把
   // "已弹出确认卡片"这句话当成"用户还不知道，我要 send_message 复述一遍"的口播触发。
@@ -994,7 +1015,7 @@ function execSetSecurity({ file_sandbox, exec_sandbox, reason = '' }) {
     ok: true,
     id,
     status: 'pending_confirmation',
-    message: '确认卡片已挂出（component=SecurityConfirmCard，居中弹窗，含"确认/取消"按钮）。用户在屏幕上直接看到了完整内容，不需要你再 send_message 复述卡片说什么或提醒用户去点确认 —— 那是冗余的口播。等用户点完，系统会用 silent APP_SIGNAL 通知你结果，那一轮也无需 send_message。本轮直接结束即可。',
+    message: '确认 surface 已挂出（kind=choice，居中聚焦，含"确认/取消"按钮）。用户在屏幕上直接看到了完整内容，不需要你再 send_message 复述卡片说什么或提醒用户去点确认 —— 那是冗余的口播。等用户点完，系统会用 silent APP_SIGNAL 通知你结果，那一轮也无需 send_message。本轮直接结束即可。',
   })
 }
 

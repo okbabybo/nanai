@@ -121,7 +121,53 @@
         ],
       },
       {
-        note: '⑧ 全部 exit:清空舞台',
+        note: '⑧ selfcheck running:同一 surface,第 1 步',
+        surfaces: [
+          S('self-check', 'selfcheck', { phase: 'running', step: 1, total: 3, name: '文件读写', icon: '📁' }),
+        ],
+      },
+      {
+        note: '⑨ selfcheck morph:第 1 步 → 第 3 步(计数/名称原地翻动,扫描条不断)',
+        surfaces: [
+          S('self-check', 'selfcheck', { phase: 'running', step: 3, total: 3, name: '视频模式', icon: '🎬' }),
+        ],
+      },
+      {
+        note: '⑩ selfcheck morph:running → done(整块交叉淡化成结果清单)',
+        surfaces: [
+          S('self-check', 'selfcheck', { phase: 'done', overall: 'degraded', results: [
+            { name: '文件读写', status: 'ok' },
+            { name: '热点面板', status: 'ok' },
+            { name: '视频模式', status: 'skipped', note: '限流' },
+          ] }),
+        ],
+      },
+      {
+        note: '⑪ awakening enter:探索发现 1/2(ambient,角落低调)',
+        surfaces: [
+          S('awakening', 'awakening', { index: 1, total: 2, title: 'Reading memories', finding: '记忆区已就绪,最近线索:用户在推进 Scene 架构迁移。', emoji: '🧠' }, { intent: 'ambient' }),
+        ],
+      },
+      {
+        note: '⑫ awakening morph:发现 1/2 → 2/2(标题/发现/进度点原地更新)',
+        surfaces: [
+          S('awakening', 'awakening', { index: 2, total: 2, title: 'Unfinished thread', finding: '一条没跟进的线:阶段4 删 ACUI 尚未开始。', emoji: '🔍' }, { intent: 'ambient' }),
+        ],
+      },
+      {
+        note: '⑬ 安全确认(confront + choice):复用 choice kind,确认/取消',
+        surfaces: [
+          S('security-confirm-demo', 'choice', {
+            prompt: '小白龙请求变更安全设置\n文件沙箱将关闭',
+            options: [
+              { value: 'confirm', label: '确认', tone: 'danger' },
+              { value: 'cancel', label: '取消' },
+            ],
+          }, { intent: 'confront', focus: true }),
+        ],
+      },
+      {
+        note: '⑭ 全部 exit:清空舞台',
         surfaces: [],
       },
     ]

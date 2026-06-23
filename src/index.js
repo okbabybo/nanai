@@ -149,26 +149,32 @@ function getAwakeningTicks() {
 }
 function decrementAwakeningTick() {
   const current = getAwakeningTicks()
-  if (current > 0) setConfig(AWAKENING_CONFIG_KEY, String(current - 1))
+  if (current > 0) {
+    const next = current - 1
+    setConfig(AWAKENING_CONFIG_KEY, String(next))
+    // 觉醒期结束:收起 awakening surface(单 surface 的生命周期到此为止;幂等，不存在则无操作）。
+    if (next === 0) sceneStore.set('awakening', null)
+  }
 }
 
 // Awakening exploration tasks: after self-check completes, each autonomous heartbeat tick completes one in order
 const EXPLORATION_INDEX_KEY = 'awakening_exploration_index'
-// AwakeningCard call template — must be executed after completing each exploration step:
-// ui_show("AwakeningCard", { index: N, total: 3, title: "title", finding: "one-sentence finding", emoji: "emoji" })
+// Awakening surface call template — must be executed after completing each exploration step.
+// Single surface "awakening" that morphs through findings (SCENE-PROTOCOL §6 kind=awakening):
+// ui_set({ id: "awakening", kind: "awakening", intent: "ambient", data: { index: N, total: 3, title: "title", finding: "one-sentence finding", emoji: "emoji" } })
 const AWAKENING_EXPLORATION_TASKS = [
   // 1. Read existing memories
   `Exploration (1/2): See what you already know.
 Go through the injected memories silently and take stock: who do you know, what do you know, are there any threads with no follow-up.
 [HARD RULE — DO NOT VIOLATE] During the awakening exploration phase the user has not started a conversation with you yet. Calling send_message to proactively open a topic — including any "casual mention" of memories you uncovered — is forbidden. Record findings only in the AwakeningCard below; do not turn them into outbound messages.
-When done, call ui_show("AwakeningCard", { index:1, total:2, title:"Reading memories", finding:"(one sentence: the most notable lead in the memory store, or 'memory store ready')", emoji:"🧠" }).
+When done, call ui_set({ id:"awakening", kind:"awakening", intent:"ambient", data:{ index:1, total:2, title:"Reading memories", finding:"(one sentence: the most notable lead in the memory store, or 'memory store ready')", emoji:"🧠" } }).
 If later the user opens a conversation and the topic is relevant, you may bring the finding in then — not before.`,
 
   // 2. Surface an unfinished thread
   `Exploration (2/2): Find a forgotten thread.
 Look through memories silently — what did the user mention before but never bring up again? A plan, an idea, something they said they wanted to do but never did?
 [HARD RULE — DO NOT VIOLATE] Same as Task 1: send_message is forbidden during awakening exploration. Do not "casually bring it up". Do not ask "do you need me to move this forward?". Do not draft an opening line to the user. The thread, if found, lives only in the AwakeningCard finding field; it waits for the user to start the conversation.
-When done, call ui_show("AwakeningCard", { index:2, total:2, title:"Unfinished thread", finding:"(one sentence describing the forgotten thread, or 'no open threads found')", emoji:"🔍" }).`,
+When done, call ui_set({ id:"awakening", kind:"awakening", intent:"ambient", data:{ index:2, total:2, title:"Unfinished thread", finding:"(one sentence describing the forgotten thread, or 'no open threads found')", emoji:"🔍" } }).`,
 ]
 
 function getExplorationIndex() {
@@ -399,13 +405,13 @@ function buildStartupSelfCheckDirections(checkState) {
   if (!checkState?.active) return ''
   return [
     `This is the L2 startup self-check flow (${STARTUP_SELF_CHECK_VERSION}). It runs once; when finished you must call complete_startup_self_check to record the results — it will not run again.`,
-    `[HARD RULE — DO NOT VIOLATE] During self-check, calling send_message is strictly forbidden. No text output of any kind (including "checking…", "self-check complete", or any other text). All status must be expressed through speak (voice) and ui_show (cards). The text channel must remain completely silent; any text output counts as self-check failure.`,
-    `Complete the following 3 checks in order. Before each one, you must simultaneously play a Chinese voice announcement and show a progress card. After the check completes, close the card before moving to the next:`,
-    `1. Call speak text="正在检查文件读写能力"; call ui_show("SelfCheckStepCard", {step:1, total:3, name:"文件读写", icon:"📁"}) and save the returned id as step_card_id. Then: use write_file to write self_check.txt in the sandbox root (content = current timestamp), then read_file it back to verify consistency. Record the result and call ui_hide(step_card_id).`,
-    `2. Call speak text="正在检查热点面板"; call ui_show("SelfCheckStepCard", {step:2, total:3, name:"热点面板", icon:"🌐"}) and save the returned id as step_card_id. Then: hotspot_mode action=show; confirm it returns ok, then hotspot_mode action=hide. Record the result and call ui_hide(step_card_id).`,
-    `3. Call speak text="正在检查视频模式"; call ui_show("SelfCheckStepCard", {step:3, total:3, name:"视频模式", icon:"🎬"}) and save the returned id as step_card_id. Then: web_search for "bilibili Iron Man JARVIS" ONCE — this is only a self-check, so take the FIRST BV number that appears in the results and stop immediately; do NOT keep searching for more videos or compare options, one valid BV id is enough. media_mode mode=video action=show url=https://www.bilibili.com/video/<BV> autoplay=true; wait ~5 seconds; media_mode mode=video action=hide. Record the result and call ui_hide(step_card_id).`,
+    `[HARD RULE — DO NOT VIOLATE] During self-check, calling send_message is strictly forbidden. No text output of any kind (including "checking…", "self-check complete", or any other text). All status must be expressed through speak (voice) and ui_set (the self-check surface). The text channel must remain completely silent; any text output counts as self-check failure.`,
+    `There is ONE self-check surface, id="self-check" (SCENE-PROTOCOL kind=selfcheck). It morphs in place through every step — never use a different id, never remove it between steps. Each step: play a Chinese voice announcement, then ui_set the running state of this one surface.`,
+    `1. Call speak text="正在检查文件读写能力"; call ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"running", step:1, total:3, name:"文件读写", icon:"📁" } }). Then: use write_file to write self_check.txt in the sandbox root (content = current timestamp), then read_file it back to verify consistency. Record the result.`,
+    `2. Call speak text="正在检查热点面板"; call ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"running", step:2, total:3, name:"热点面板", icon:"🌐" } }). Then: hotspot_mode action=show; confirm it returns ok, then hotspot_mode action=hide. Record the result.`,
+    `3. Call speak text="正在检查视频模式"; call ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"running", step:3, total:3, name:"视频模式", icon:"🎬" } }). Then: web_search for "bilibili Iron Man JARVIS" ONCE — this is only a self-check, so take the FIRST BV number that appears in the results and stop immediately; do NOT keep searching for more videos or compare options, one valid BV id is enough. media_mode mode=video action=show url=https://www.bilibili.com/video/<BV> autoplay=true; wait ~5 seconds; media_mode mode=video action=hide. Record the result.`,
     `Result values: use ok, degraded, error, or skipped_* for each item. Continue to the next item even if one fails.`,
-    `[FINAL TWO STEPS — REQUIRED]\n(a) Call ui_show to display SelfCheckCard with props: { results: [{name:"文件读写",status:"ok/error",...},{name:"热点面板",...},{name:"视频模式",...}], overall:"ok/degraded/error" }. Infer overall from actual results: all ok → ok; any skipped → degraded; any error → error.\n(b) Call complete_startup_self_check with a summary (one sentence) and the results object.`,
+    `[FINAL THREE STEPS — REQUIRED, in order]\n(a) Morph the SAME surface to its done state: ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"done", results:[{name:"文件读写",status:"ok/error/skipped",note:"..."},{name:"热点面板",status:"..."},{name:"视频模式",status:"..."}], overall:"ok/degraded/error" } }). Infer overall from actual results: all ok → ok; any skipped → degraded; any error → error.\n(b) Call complete_startup_self_check with a summary (one sentence) and the results object.\n(c) Clear the surface: ui_set({ id:"self-check", remove:true }).`,
   ].join('\n')
 }
 

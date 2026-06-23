@@ -76,6 +76,12 @@ export class SceneStore {
     return true
   }
 
+  // 读取单个 surface 的规范化副本(只读;不存在返回 null)。
+  // 供 core 侧需要回查 surface 携带数据时使用(如安全确认把待应用变更存在 data.pending)。
+  get(id) {
+    return this.surfaces.get(id) || null
+  }
+
   // 当前全量快照(协议 §3.1 的 scene 消息体)。
   snapshot() {
     return { v: 1, type: 'scene', rev: this.rev, surfaces: this._orderedSurfaces() }

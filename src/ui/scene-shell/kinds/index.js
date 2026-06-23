@@ -9,6 +9,8 @@ import { metric } from './metric.js'
 import { image } from './image.js'
 import { choice } from './choice.js'
 import { weather } from './weather.js'
+import { selfcheck } from './selfcheck.js'
+import { awakening } from './awakening.js'
 import { stack, row, col } from './layout.js'
 
 // 未知 kind 的占位组件:显示 kind 名,保持画面不崩。
@@ -21,7 +23,7 @@ const unknown = {
   morph() {},
 }
 
-const REGISTRY = { text, metric, image, choice, weather, stack, row, col }
+const REGISTRY = { text, metric, image, choice, weather, selfcheck, awakening, stack, row, col }
 
 // 取某 kind 的组件;不存在则返回占位组件。
 export function getKind(kind) {
