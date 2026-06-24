@@ -1,6 +1,5 @@
 // 把 scene-shell 作为叠加层挂进宿主页(brain-ui),连接 /scene。
-// 与旧 ACUI(/acui)完全并行、互不依赖 —— 阶段1「集成」:让新 UI 在 app 主窗口里真正可见。
-// 仿 acui/bootstrap.js 的挂载模式。
+// 声明式 Agent-UI 投影层 —— 在 app 主窗口里挂载 scene-shell 叠加层。
 
 import { SceneClient } from './client.js'
 import { Shell } from './shell.js'

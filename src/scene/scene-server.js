@@ -1,7 +1,7 @@
 // Scene 传输层 —— /scene WebSocket。
 //
 // 职责:管理已连接的 shell、把 SceneStore 的变更广播成协议消息(scene / scene.patch)、
-// 处理上行的 hello / resync / intent / pong。与 ACUI 的 /acui 完全独立(并行系统)。
+// 处理上行的 hello / resync / intent / pong。声明式 Agent-UI 的唯一 UI 通道。
 // 协议见仓库根目录 SCENE-PROTOCOL.md。
 
 import { sceneStore } from './scene-store.js'

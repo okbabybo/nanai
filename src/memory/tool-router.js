@@ -30,7 +30,7 @@ import { getStatus as getTickerStatus } from '../ticker.js'
 
 // ---- 工具分组 ----
 //
-// core：任何场景都注入。ACUI 工具默认带上（白龙马侧 Phase 1 决策，组件少 token 便宜）。
+// core：任何场景都注入。
 const CORE_TOOLS = [
   'send_message',
   'recall_memory',
@@ -38,7 +38,6 @@ const CORE_TOOLS = [
   // 工具（比如关键词没命中导致 generate_image / exec_command 没进来），可调 find_tool 搜出来并当场装载。
   'find_tool',
   'ui_set',
-  'ui_show', 'ui_update', 'ui_hide', 'ui_register', 'ui_patch',
 ]
 
 const TASK_CTRL_FULL    = ['set_task', 'complete_task', 'update_task_step', 'review_work']
@@ -73,7 +72,7 @@ const FOCUS_BANNER_TOOLS = ['focus_banner']
 const ADMIN_TOOLS       = [
   'manage_tool_factory', 'install_tool', 'uninstall_tool', 'list_tools',
   'set_security', 'connect_wechat',
-  'set_location', 'set_agent_name', 'manage_app', 'manage_rule',
+  'set_location', 'set_agent_name', 'manage_rule',
 ]
 
 // 多模态生成（按 mmCaps gate；关键词命中后才注入对应工具）

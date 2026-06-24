@@ -253,7 +253,7 @@ export function buildSystemPrompt({
   hasActiveTask = false,       // 是否有 active 多步任务（用于 Complex Task Mode 段）
   currentCountryCode = '',     // 已收集的 geo Country Code（用于 Platform Routing 段）
   currentTimezone = '',        // 已收集的 geo Timezone（用于 Platform Routing 段）
-  currentTools: _currentTools = [],  // 当前轮 injection.tools，未来用于按工具裁 ACUI 子段
+  currentTools: _currentTools = [],  // 当前轮 injection.tools，未来用于按工具裁 Visual Surfaces 子段
   currentTaskText = '',        // 当前 active task 描述文本（编程纪律段的信号源之二）
   recentActionsSummary = '',   // 最近动作摘要拼接（编程纪律段的信号源之三：write_file+exec 模式）
   // The following are accepted for backward compatibility but no longer

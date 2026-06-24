@@ -2,7 +2,7 @@
 
 `UI = f(scene)` 的渲染端实现。它是 SceneStore(唯一真相源)的**纯投影**:
 只读 scene、写 DOM、把用户 `intent` 上行。无业务逻辑、无 fetch、不执行任何远端代码。
-协议见仓库根 `SCENE-PROTOCOL.md`,理念见《Agent-驱动UI-设计方案.md》。与旧 ACUI 完全并行、互不依赖。
+协议见仓库根 `SCENE-PROTOCOL.md`,理念见《Agent-驱动UI-设计方案.md》。这是白龙马唯一的声明式 Agent-UI 通道。
 
 ## 文件结构
 

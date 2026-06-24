@@ -1,6 +1,5 @@
 ﻿import { renderBrainUiApp } from "./app-shell.js";
 import { API } from "./api-client.js";
-import { bootstrapACUI } from "./acui/bootstrap.js";
 import { bootstrapScene } from "../scene-shell/bootstrap.js";
 import { initChat, friendlyChannelLabel } from "./chat.js";
 import { initPanelCollapse } from "./panel-collapse.js";
@@ -1054,7 +1053,7 @@ const AI_TOOL_GROUPS = {
   "执行命令": new Set(["exec_command", "exec_quick_command", "exec_task_command", "exec_background_command", "download_file", "kill_process", "list_processes"]),
   "上网": new Set(["fetch_url", "web_search", "browser_read"]),
   "调取记忆": new Set(["search_memory", "recall_memory", "probe_memory", "upsert_memory", "merge_memories", "downgrade_memory"]),
-  "推送界面": new Set(["ui_show", "ui_update", "ui_hide", "ui_patch", "ui_register", "focus_banner"]),
+  "推送界面": new Set(["ui_set", "focus_banner"]),
   "处理多媒体": new Set(["speak", "generate_lyrics", "generate_music", "generate_image", "music", "media_mode"]),
   "回复用户": new Set(["send_message", "express"]),
 };
@@ -2165,8 +2164,7 @@ initDocPanel().catch((err) => console.warn('[DocPanel] init failed:', err));
 chat.restoreChatHistory();
 chat.unlockAudioOnFirstGesture();
 
-bootstrapACUI();
-bootstrapScene();  // Scene 架构 shell(/scene),与 ACUI 并存。拆旧 ACUI 阶段1:集成。
+bootstrapScene();  // Scene 架构 shell(/scene):声明式 Agent-UI 投影层。
 initPanelCollapse();
 initWechatPopup();
 

@@ -9,7 +9,7 @@ import { handleSceneConnection, setSceneIntentHandler } from './scene/scene-serv
 import { sceneStore } from './scene/scene-store.js'
 import { pushMessage } from './queue.js'
 import { getDB, getConfig, setConfig, insertUISignal, upsertMediaHistory, getMediaHistory, updateLastJarvisConversationContent, getRecentRecallAudits, getRecentExtractAudits, getRecallAuditStats, getExtractAuditStats } from './db.js'
-import { emitEvent, addSSEClient, removeSSEClient, addACUIClient, removeACUIClient, removeActiveUICard, emitUICommand, flushStickyEvents, setStickyEvent } from './events.js'
+import { emitEvent, addSSEClient, removeSSEClient, flushStickyEvents, setStickyEvent } from './events.js'
 import { getQuotaStatus } from './quota.js'
 import { isRunning, stopLoop, startLoop } from './control.js'
 import { buildHeartbeatSystemPromptPreview } from './system-prompt-preview.js'
@@ -19,7 +19,6 @@ import { streamTTS, TTS_PROVIDERS, TTS_VOICES, validateTTSConfig } from './voice
 import { restartConnector } from './social/index.js'
 // manager.js (Whisper local server) removed
 import { replaceProvider } from './providers/registry.js'
-import { persistAppState } from './capabilities/executor.js'
 import { execGenerateVideo, saveGeneratedVideo, setAIVideoPanelState, getVideoHistory, stripMarkdownForSpeech } from './capabilities/tools/media.js'
 import { MinimaxProvider } from './providers/minimax.js'
 import { handleSocialWebhook, isSocialWebhookPath } from './social/webhooks.js'
@@ -50,13 +49,6 @@ const DEFAULT_AGENT_NAME = '小白龙'
 const DEFAULT_API_HOST = '127.0.0.1'
 
 // card.action signals that are lifecycle/system-internal — stored in DB for passive injector use only, not pushed to the agent queue
-const SILENT_CARD_ACTIONS = new Set([
-  'card.dismissed',  // card closed (components should use acui:dismiss; this is a fallback guard)
-  'card.mounted',    // mount complete
-  'card.dwell',      // dwell heartbeat
-  'card.error',      // render error (already handled by the card.error type signal)
-])
-
 function getApiHost() {
   const envHost = String(globalThis.process?.env?.BAILONGMA_HOST || '').trim()
   if (envHost) return envHost
@@ -1807,77 +1799,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     ws.on('error', () => { session?.close(); session = null })
   })
 
-  // ACUI WebSocket channel: bidirectional control + perception
-  const acuiWss = new WebSocketServer({ noServer: true })
-  acuiWss.on('connection', (ws) => {
-    addACUIClient(ws)
-    try { ws.send(JSON.stringify({ v: 1, kind: 'acui:hello' })) } catch {}
-
-    ws.on('message', (raw) => {
-      try {
-        const msg = JSON.parse(raw.toString())
-        if (msg?.kind === 'ui.signal') {
-          const id = insertUISignal({
-            type: msg.type,
-            target: msg.target || null,
-            payload: msg.payload || {},
-            ts: msg.ts || Date.now(),
-          })
-          emitEvent('ui_signal', { id, type: msg.type, target: msg.target, payload: msg.payload })
-          // card.dismissed: remove from server-side active card table
-          if (msg.type === 'card.dismissed') {
-            removeActiveUICard(msg.target)
-          }
-          // Only push to the agent queue on explicit user interaction (card.action).
-          // Lifecycle signals like card.dismissed are already persisted by insertUISignal for passive injector use.
-          if (msg.type === 'card.action') {
-            const appId = msg.target || 'ui'
-            const action = msg.payload?.action || 'unknown'
-            const payload = msg.payload?.payload || msg.payload || {}
-            if (action === 'app:saveState') {
-              // Auto-reported state snapshot from the component: persist directly, do not trigger agent
-              persistAppState(appId, payload)
-            } else if (action === 'confirm_security_change') {
-              // User confirmed a security settings change: apply directly, do not push to agent queue
-              const updates = {}
-              if (payload.file_sandbox !== undefined) updates.fileSandbox = String(payload.file_sandbox) === 'true'
-              if (payload.exec_sandbox !== undefined) updates.execSandbox = String(payload.exec_sandbox) === 'true'
-              const result = Object.keys(updates).length > 0 ? setSecurity(updates) : getSecurity()
-              emitUICommand({ op: 'unmount', id: appId })
-              removeActiveUICard(appId)
-              const desc = Object.entries(updates).map(([k, v]) => `${k}=${v}`).join(', ')
-              pushMessage(
-                'SYSTEM',
-                `[security settings updated] User confirmed changes: ${desc}. changed_at=${result.updatedAt || 'not recorded'}\n(Internal context refresh only. Do NOT call send_message.)`,
-                'APP_SIGNAL',
-                { queue: 'background', persist: false, silent: true },
-              )
-            } else if (action === 'cancel_security_change') {
-              // User cancelled — close the card, do not apply changes
-              emitUICommand({ op: 'unmount', id: appId })
-              removeActiveUICard(appId)
-              pushMessage('SYSTEM', '[security settings change] User cancelled — settings unchanged\n(Internal context refresh only. Do NOT call send_message.)', 'APP_SIGNAL', { queue: 'background', persist: false, silent: true })
-            } else if (action.startsWith('app:') || SILENT_CARD_ACTIONS.has(action)) {
-              // app: prefix = system-internal signal; SILENT_CARD_ACTIONS = lifecycle signals.
-              // Both are already written to DB by insertUISignal; injector picks them up passively on the next tick.
-            } else {
-              const signalContent = `[App signal app=${appId} action=${action}]\n${JSON.stringify(payload, null, 2)}`
-              pushMessage(`APP:${appId}`, signalContent, 'APP_SIGNAL')
-            }
-          }
-        } else if (msg?.kind === 'pong') {
-          // ignore
-        }
-      } catch (e) {
-        // Reject non-JSON frames
-      }
-    })
-
-    ws.on('close', () => removeACUIClient(ws))
-    ws.on('error', () => removeACUIClient(ws))
-  })
-
-  // ---- Scene 协议(新 Agent-UI 架构,/scene,与上面的 /acui 并行)----
+  // ---- Scene 协议(声明式 Agent-UI 架构,WS /scene)----
   const sceneWss = new WebSocketServer({ noServer: true })
   sceneWss.on('connection', (ws) => handleSceneConnection(ws))
 
@@ -1922,20 +1844,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
 
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url, `http://localhost:${port}`)
-    if (url.pathname === '/acui') {
-      const origin = req.headers.origin
-      if (origin && !isAllowedOrigin(origin)) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      if (!hasAllowedAccess(req, url)) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      acuiWss.handleUpgrade(req, socket, head, (ws) => acuiWss.emit('connection', ws, req))
-    } else if (url.pathname === '/scene') {
+    if (url.pathname === '/scene') {
       const origin = req.headers.origin
       if (origin && !isAllowedOrigin(origin)) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
@@ -1955,14 +1864,6 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     }
   })
 
-  // Heartbeat: send ping to all ACUI clients every 30s
-  const acuiHeartbeat = setInterval(() => {
-    for (const client of acuiWss.clients) {
-      try { client.send(JSON.stringify({ v: 1, kind: 'ping' })) } catch {}
-    }
-  }, 30000)
-  acuiHeartbeat.unref?.()
-
   server.listen(port, host, () => {
     console.log(`[API] Listening at http://${host}:${port}`)
     console.log(`[API]   POST /message  — send message to agent`)
@@ -1970,7 +1871,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     console.log(`[API]   GET  /memories — query memories`)
     console.log(`[API]   GET  /audit/recall, /audit/extract, /audit/stats — memory observability (Phase 0)`)
     console.log(`[API]   GET  /status   — status`)
-    console.log(`[API]   WS   /acui     — ACUI bidirectional channel (control + perception)`)
+    console.log(`[API]   WS   /scene    — Scene declarative UI channel`)
   })
 
   return server

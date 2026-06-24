@@ -14,7 +14,6 @@ import {
   insertRecallAudit,
   searchMemories,
 } from '../db.js'
-import { getActiveUICards } from '../events.js'
 import { getInstalledToolNames } from '../capabilities/marketplace/index.js'
 import { PRIMARY_USER_ID } from '../identity.js'
 import { extractKeywords } from './keywords.js'
@@ -43,7 +42,6 @@ export {
   formatTemporalRecall,
   formatMemoriesForPrompt,
   formatPrefetchedItems,
-  formatActiveUICards,
   formatSceneManifest,
   formatAIVideoPanel,
   formatTaskKnowledge,
@@ -193,8 +191,6 @@ export async function runInjector({ message, state, hint = '' }) {
   const uiSignalSummary = summarizeUISignals(uiSignals)
   if (uiSignals.length) markUISignalsConsumed(uiSignals.map(s => s.id))
 
-  const activeUICards = getActiveUICards()
-
   const { listCapabilities } = await import('../providers/registry.js')
   const mmCaps = listCapabilities()
   const installedNames = getInstalledToolNames()
@@ -272,7 +268,6 @@ export async function runInjector({ message, state, hint = '' }) {
     actionLog,
     prefetchedItems,
     uiSignalSummary,
-    activeUICards,
     temporalRecall,
     selfPerception,
     selfSnapshot,

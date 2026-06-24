@@ -541,7 +541,6 @@ const HIGH_RISK_TOOLS = new Set([
   'generate_lyrics',
   'generate_music',
   'generate_image',
-  'ui_register',
 ])
 
 function stableStringify(value) {

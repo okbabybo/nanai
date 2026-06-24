@@ -1,6 +1,6 @@
-// UI / ACUI 类工具 schema：hotspot_mode / worldcup_mode / open_doc_panel /
-// person_card_mode / ui_show / ui_hide / ui_update / manage_app / ui_patch /
-// ui_register / focus_banner
+// UI 类工具 schema：hotspot_mode / worldcup_mode / open_doc_panel /
+// person_card_mode / focus_banner
+// （声明式 Scene 的 ui_set 在 schemas/scene.js）
 export const uiSchemas = {
   worldcup_mode: {
     type: 'function',
@@ -50,7 +50,7 @@ export const uiSchemas = {
           topic: {
             type: 'string',
             enum: ['voice_asr', 'voice_tts', 'voice_config', 'model_config', 'wechat_config', 'self_architecture', 'ui_design'],
-            description: 'Required when action=open. Choose one topic: voice_asr, voice_tts, voice_config, model_config, wechat_config, self_architecture (how BaiLongma works internally), or ui_design (BaiLongma\'s interface/ACUI design). Do not invent other values. Optional when action=close.'
+            description: 'Required when action=open. Choose one topic: voice_asr, voice_tts, voice_config, model_config, wechat_config, self_architecture (how BaiLongma works internally), or ui_design (BaiLongma\'s interface / Scene UI design). Do not invent other values. Optional when action=close.'
           },
           reason: { type: 'string', description: 'Optional short reason.' },
         },
@@ -79,140 +79,6 @@ export const uiSchemas = {
           reason: { type: 'string', description: 'Optional short reason for opening or closing.' },
         },
         required: ['action']
-      }
-    }
-  },
-
-  ui_show: {
-    type: 'function',
-    function: {
-      name: 'ui_show',
-      description: 'Push a registered visual card to the user interface. Always specify component + props matching the registered component\'s propsSchema. Use only when UI expression is clearer than plain text.',
-      parameters: {
-        type: 'object',
-        properties: {
-          component: { type: 'string', description: 'Registered component type name, e.g. WeatherCard. Required.' },
-          props:     { type: 'object', description: 'Component props following the component\'s propsSchema.' },
-          hint: {
-            type: 'object',
-            description: 'Optional display hint. All fields have reasonable defaults.',
-            properties: {
-              placement: { type: 'string', enum: ['notification', 'center', 'floating', 'stage'], description: 'notification=top-right stacked slide-in (default); center=centered with overlay; floating=free draggable; stage=fullscreen.' },
-              size:      { description: 'Size: sm | md | lg | xl, or pixel object { w, h }.', oneOf: [{ type: 'string', enum: ['sm', 'md', 'lg', 'xl'] }, { type: 'object', properties: { w: { type: ['number', 'string'] }, h: { type: ['number', 'string'] } } }] },
-              draggable: { type: 'boolean', description: 'Whether draggable. floating defaults true.' },
-              modal:     { type: 'boolean', description: 'Show translucent overlay. center defaults true.' },
-              enter:     { type: 'string', description: 'Enter animation, inferred from placement by default.' },
-              exit:      { type: 'string', description: 'Exit animation, inferred from placement by default.' }
-            }
-          }
-        },
-        required: ['component']
-      }
-    }
-  },
-
-  ui_hide: {
-    type: 'function',
-    function: {
-      name: 'ui_hide',
-      description: 'Close a displayed card with its exit animation. Usually let the user close cards; proactively call only when the card information is stale.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id: { type: 'string', description: 'Card instance id returned by ui_show.' }
-        },
-        required: ['id']
-      }
-    }
-  },
-
-  ui_update: {
-    type: 'function',
-    function: {
-      name: 'ui_update',
-      description: 'Update a displayed card without replaying the enter animation. Common use: change props when the user asks about another city weather instead of opening a new card.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id:    { type: 'string', description: 'Card instance id returned by ui_show.' },
-          props: { type: 'object', description: 'New props, shallow-merged with existing props.' }
-        },
-        required: ['id', 'props']
-      }
-    }
-  },
-
-  manage_app: {
-    type: 'function',
-    function: {
-      name: 'manage_app',
-      description: 'Manage generated interactive apps such as games/tools: save as permanent app, reopen, list, or delete. inline-script component code is saved as a draft when generated; use save to promote it to a formal app that can be reopened later.',
-      parameters: {
-        type: 'object',
-        properties: {
-          action: {
-            type: 'string',
-            enum: ['save', 'open', 'list', 'delete'],
-            description: 'save promotes an inline-script draft to a permanent app; open remounts a saved app with automatic state restore; list lists saved apps; delete removes an app.'
-          },
-          name: {
-            type: 'string',
-            description: 'App name in lowercase snake_case, used as the storage directory, e.g. chess or todo_app. Required for save/open/delete.'
-          },
-          label: {
-            type: 'string',
-            description: 'Optional display label, e.g. Chinese chess. Provide when saving.'
-          },
-          draft_id: {
-            type: 'string',
-            description: 'Required for save: component instance id returned by ui_show(mode="inline-script"), e.g. scratch-xxx.'
-          },
-          state: {
-            type: 'object',
-            description: 'Optional state included when saving or opening. For save, pass current game/app state; for open, this overrides persisted state.'
-          },
-          hint: {
-            type: 'object',
-            description: 'Optional UI display hint, such as placement / size / draggable. Written to metadata during save and reused during open.'
-          }
-        },
-        required: ['action']
-      }
-    }
-  },
-
-  ui_patch: {
-    type: 'function',
-    function: {
-      name: 'ui_patch',
-      description: 'Send operation commands or state updates to a mounted app component. The component listens with this._app.onPatch(). Use for game turns, state machines, canvas updates, and other cases where the agent proactively pushes changes.',
-      parameters: {
-        type: 'object',
-        properties: {
-          id:   { type: 'string', description: 'Component instance id returned by ui_show.' },
-          op:   { type: 'string', description: 'Operation name defined by the component, such as applyMove, setState, or nextRound.' },
-          data: { type: 'object', description: 'Operation data interpreted by the component.' },
-        },
-        required: ['id', 'op']
-      }
-    }
-  },
-
-  ui_register: {
-    type: 'function',
-    function: {
-      name: 'ui_register',
-      description: 'Promote a verified inline component to a permanent component: write a .js file, update registry, write ui-components.json, and seed one skill.ui memory. Usually call after the inline component succeeds at least twice, the user does not immediately close it, and dwell signals are good. After registration, future similar needs can use ui_show directly.',
-      parameters: {
-        type: 'object',
-        properties: {
-          component_name: { type: 'string', description: 'Unused PascalCase component name, e.g. TodoCard or VideoPlayer.' },
-          code:           { type: 'string', description: 'Complete Web Component class code. Must include static tagName / static propsSchema / static enter / static exit and end with customElements.define.' },
-          props_schema:   { type: 'object', description: 'Object matching propsSchema in code, used as backend validation mirror, e.g. { field: { type, required } }.' },
-          use_case:       { type: 'string', description: 'When to use this component. Written into skill.ui memory as matching conditions.' },
-          example_call:   { type: 'string', description: 'Example ui_show call.' }
-        },
-        required: ['component_name', 'code', 'props_schema', 'use_case', 'example_call']
       }
     }
   },

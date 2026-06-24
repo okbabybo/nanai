@@ -20,11 +20,6 @@ const TOOL_RISK = {
   manage_prefetch_task: 'medium',
   manage_rule: 'medium',
   ui_set: 'medium',
-  ui_show: 'medium',
-  ui_update: 'medium',
-  ui_hide: 'medium',
-  ui_patch: 'medium',
-  manage_app: 'medium',
   set_tick_interval: 'medium',
   media_mode: 'low',
   hotspot_mode: 'low',
@@ -55,7 +50,6 @@ const TOOL_RISK = {
   generate_music: 'high',
   generate_image: 'high',
   generate_video: 'high',
-  ui_register: 'high',
   set_security: 'high',
 }
 export function classifyTool(name) {

@@ -91,13 +91,6 @@ export function formatPrefetchedItems(prefetchedItems = []) {
   return body + '\n\nThe data above has already been prefetched. Use it directly and phrase the response naturally; do not reuse the same sentence pattern every time.'
 }
 
-// 当前屏幕上的存活 ACUI 卡片列表
-export function formatActiveUICards(cards = []) {
-  if (!cards?.length) return ''
-  const lines = cards.map(c => `  - id="${c.id}"  component=${c.component}`)
-  return `[Active UI cards on screen]\n${lines.join('\n')}\nUse ui_hide with the id to close a card; use ui_update to update its content.`
-}
-
 // 当前屏幕上的 scene surfaces(新 Agent-UI 架构,SceneStore 的紧凑投影)。
 // 只暴露 id/kind/intent/focus —— 让 Agent 知道"屏上有什么",但碰不到像素/data。
 // 这是设计方案 §四的闭环回注:背景状态,不是触发器。

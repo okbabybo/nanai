@@ -3,7 +3,7 @@ import fs from 'fs'
 import path from 'path'
 import { nowTimestamp } from '../time.js'
 import { normalizeConversationPartyId, upsertPrefetchTask, removePrefetchTask, listPrefetchTasks, insertConversation, setConfig as dbSetConfig, markConversationOpenQuestion, findRecentJarvisDuplicate, getRecentActionLogs } from '../db.js'
-import { emitEvent, emitUICommand, hasACUIClient, addActiveUICard, setStickyEvent } from '../events.js'
+import { emitEvent, setStickyEvent } from '../events.js'
 import { dispatchSocialMessage } from '../social/dispatch.js'
 import { setCustomInterval as setTickerInterval, getStatus as getTickerStatus } from '../ticker.js'
 import { setHotspotPanelState, getHotspotPanelState } from '../hotspots.js'
@@ -17,7 +17,6 @@ import { execManageToolFactory } from './tool-factory.js'
 import { TOOL_SCHEMAS } from './schemas.js'
 import { TOOL_GROUPS } from '../memory/tool-router.js'
 import { throwIfAborted } from './abort-utils.js'
-import { execUIHide, execUIRegister, execUIShow, execUIUpdate, execUIPatch, execManageApp } from './tools/ui.js'
 import { execUISet } from './tools/scene.js'
 import { sceneStore } from '../scene/scene-store.js'
 import { sceneClientCount } from '../scene/scene-server.js'
@@ -33,7 +32,6 @@ import { execManageRule } from './tools/rules.js'
 import { runWorkReview } from '../review/reviewer.js'
 export { calculateNextDueAt } from './tools/reminders.js'
 export { autoSpeakForVoiceReply } from './tools/media.js'
-export { persistAppState } from './tools/ui.js'
 
 import { config, setSecurity } from '../config.js'
 import { paths } from '../paths.js'
@@ -250,18 +248,6 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execManageRule(args)
       case 'ui_set':
         return execUISet(args)
-      case 'ui_show':
-        return execUIShow(args)
-      case 'ui_update':
-        return execUIUpdate(args)
-      case 'ui_hide':
-        return execUIHide(args)
-      case 'ui_patch':
-        return execUIPatch(args)
-      case 'manage_app':
-        return execManageApp(args)
-      case 'ui_register':
-        return execUIRegister(args)
       case 'focus_banner':
         return execFocusBanner(args)
       case 'set_location':
@@ -565,7 +551,7 @@ function execFindTool({ query } = {}) {
   }
 
   // 不把已是 CORE 的工具当"新发现"返回（模型本来就有），减少噪声。
-  const ALWAYS_PRESENT = new Set(['find_tool', 'recall_memory', 'ui_show', 'ui_update', 'ui_hide', 'ui_register', 'ui_patch'])
+  const ALWAYS_PRESENT = new Set(['find_tool', 'recall_memory', 'ui_set'])
   const found = [...matched].filter(name => !ALWAYS_PRESENT.has(name))
 
   if (found.length === 0) {
@@ -645,7 +631,7 @@ function execSetTickInterval({ seconds, ttl, reason }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ACUI · UI 控制工具
+// 面板 · 界面控制工具
 // ─────────────────────────────────────────────────────────────────────────────
 function execHotspotMode(args = {}) {
   const action = String(args.action || 'status').trim().toLowerCase()
@@ -966,8 +952,8 @@ function execSetAgentName({ name }) {
 }
 
 function execConnectWechat() {
-  if (!hasACUIClient()) {
-    return toolJson({ ok: false, error: '当前没有 UI 客户端，无法弹出微信连接界面。' })
+  if (sceneClientCount() === 0) {
+    return toolJson({ ok: false, error: '当前没有界面客户端，无法弹出微信连接界面。' })
   }
   emitEvent('show_wechat_popup', {})
   return toolJson({ ok: true, status: 'popup_shown', message: '已弹出微信连接二维码界面，请告知用户扫码操作。' })

@@ -2,7 +2,7 @@ import { config, getMinimaxKey as _getMinimaxKey, getSecurity } from './config.j
 import { callLLM } from './llm.js'
 import { buildSystemPrompt, buildContextBlock, combinePromptForPreview } from './prompt.js'
 import { enqueueTurnForRecognition, configureRecognizerScheduler } from './memory/recognizer-scheduler.js'
-import { runInjector, formatMemoriesForPrompt, formatActivePoliciesForPrompt, formatTaskKnowledge, formatPrefetchedItems, formatActiveUICards, formatSceneManifest, formatTemporalRecall, formatAIVideoPanel } from './memory/injector.js'
+import { runInjector, formatMemoriesForPrompt, formatActivePoliciesForPrompt, formatTaskKnowledge, formatPrefetchedItems, formatSceneManifest, formatTemporalRecall, formatAIVideoPanel } from './memory/injector.js'
 import { sceneStore } from './scene/scene-store.js'
 import {
   ensureThreadState, attributeUserMessage, buildThreadView, getForegroundThread,
@@ -20,7 +20,7 @@ import { calculateNextDueAt, autoSpeakForVoiceReply, detectOpenFollowupQuestion 
 import { popMessage, hasMessages, hasUserMessages, getQueueSnapshot, setInterruptCallback, requeueMessage, pushMessage } from './queue.js'
 import { startTUI } from './tui.js'
 import { startAPI } from './api.js'
-import { emitEvent, emitUICommand, addActiveUICard, hasACUIClient, setStickyEvent, clearStickyEvent } from './events.js'
+import { emitEvent, setStickyEvent, clearStickyEvent } from './events.js'
 import { formatTick, nowTimestamp, describeExistence } from './time.js'
 import { getAdaptiveTickInterval, getQuotaStatus, setRateLimited, isRateLimited, getTickInterval } from './quota.js'
 import { registerProvider } from './providers/registry.js'
@@ -28,7 +28,6 @@ import { MinimaxProvider } from './providers/minimax.js'
 import { isRunning, setScheduler } from './control.js'
 import { getCustomIntervalMs, consumeTick as consumeTickerTick, getStatus as getTickerStatus } from './ticker.js'
 import { seedSandboxOnce, seedMusicOnce, rescueDataFromInstallDir } from './paths.js'
-import { ensureSkillMemories } from './memory/seed-skills.js'
 import { loadInstalledTools } from './capabilities/marketplace/index.js'
 import { resumePendingVideoJobs, getAIVideoPanelState } from './capabilities/tools/media.js'
 import { dispatchSocialMessage } from './social/dispatch.js'
@@ -1179,7 +1178,7 @@ async function runTurn(input, label, msg = null) {
     const agentName = getConfig('agent_name') || '小白龙'
     const entities = getKnownEntities()
     const hasActiveTask = !!state.task
-    const extraContextJoined = [presenceText, runtimeInjection.contextText, prefetchText, injection.uiSignalSummary, formatActiveUICards(injection.activeUICards), formatSceneManifest(sceneStore.manifest()), formatAIVideoPanel(getAIVideoPanelState())].filter(Boolean).join('\n\n')
+    const extraContextJoined = [presenceText, runtimeInjection.contextText, prefetchText, injection.uiSignalSummary, formatSceneManifest(sceneStore.manifest()), formatAIVideoPanel(getAIVideoPanelState())].filter(Boolean).join('\n\n')
     const skillSelection = selectSkillsForMessage(msg?.content || input || '')
     const agentSkillsText = formatSkillsForContext(skillSelection)
     if (skillSelection.active.length > 0 || skillSelection.catalogRequested) {
@@ -1834,8 +1833,6 @@ async function main() {
     }
   }
 
-  // Sync ACUI skill memories (compare AGENT_GUIDE.md hash, update skill-ui-* entries as needed)
-  ensureSkillMemories()
 
   const persona = getConfig('persona')
   if (persona) {

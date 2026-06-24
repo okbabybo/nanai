@@ -153,11 +153,11 @@ assert(!sysNeutral.includes('WeChat Connection'), 'neutral input: no WeChat Conn
 assert(!sysNeutral.includes('WeChat Outbound Constraint'), 'neutral input: no WeChat Outbound block')
 assert(!sysNeutral.includes('## Focus Banner'), 'neutral input: no Focus Banner block')
 assert(!sysNeutral.includes('## Security Sandbox'), 'neutral input: no Security Sandbox block')
-// Neutral baseline 仍保留 CORE：Top-Level、Response Rules、ACUI 主段、Voice 段
+// Neutral baseline 仍保留 CORE：Top-Level、Response Rules、Visual Surfaces 主段、Voice 段
 assert(sysNeutral.includes('## Top-Level Behavior Rules'), 'neutral: CORE Top-Level kept')
-assert(sysNeutral.includes('## ACUI Visual Channel'), 'neutral: CORE ACUI main kept')
+assert(sysNeutral.includes('## Visual Surfaces'), 'neutral: CORE Visual Surfaces main kept')
 assert(sysNeutral.includes('## Voice Input: Spoken Brevity'), 'neutral: CORE Voice kept')
-assert(sysNeutral.includes('### ui_show Rules'), 'neutral: CORE ui_show Rules kept')
+assert(sysNeutral.includes('### Kinds & Composition'), 'neutral: CORE Kinds & Composition kept')
 
 // 8.1 Music gate
 const sysMusic = buildSystemPrompt({ agentName: 'Longma', persona: 'p', userMessage: '放首周杰伦的歌' })
@@ -224,7 +224,7 @@ for (const s of [sysNeutral, sysMusic, sysVideo, sysWeather, sysWcConn, sysWcOut
   assert(s.includes('## Relationship Posture'), 'CORE: Relationship Posture always present')
   assert(s.includes('## Response Rules'), 'CORE: Response Rules always present')
   assert(s.includes('## Self-Sufficient Execution'), 'CORE: Self-Sufficient Execution always present')
-  assert(s.includes('## ACUI Visual Channel'), 'CORE: ACUI Visual Channel always present')
+  assert(s.includes('## Visual Surfaces'), 'CORE: Visual Surfaces always present')
 }
 
 // 8.10 Token 节省估算：neutral baseline vs full-injection
