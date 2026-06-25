@@ -265,12 +265,18 @@ export async function runRecognizerBatch(turns) {
         const { computeEmbedding, isEmbeddingConfigured } = await import('../embedding.js')
         const { updateMemoryEmbedding } = await import('../db.js')
         if (!isEmbeddingConfigured()) return
+        // 入库文本是 passage（非 query），computeEmbedding 的 isQuery 默认 false，不加 bge 检索前缀
+        let model = null
+        try {
+          const { getEmbeddingCredentials } = await import('../config.js')
+          model = getEmbeddingCredentials()?.model || null
+        } catch {}
         await Promise.allSettled(writtenMemories.map(async (m) => {
           const text = [m.title, m.content].filter(Boolean).join(' ')
           if (!text || text.length < 2) return
           const emb = await computeEmbedding(text)
           if (emb) {
-            try { updateMemoryEmbedding(m.mem_id, emb) } catch {}
+            try { updateMemoryEmbedding(m.mem_id, emb, model) } catch {}
           }
         }))
       } catch {

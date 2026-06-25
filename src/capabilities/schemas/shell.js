@@ -4,7 +4,6 @@ export const shellSchemas = {
     type: 'function',
     function: {
       name: 'install_software',
-      description: 'Install desktop software through a structured Windows winget workflow. Use this FIRST for requests like 安装QQ/微信/Chrome/软件, before raw exec_command, web_search, fetch_url, browser_read, or manual installer downloads. It checks winget, searches candidates, prefers known modern package ids such as Tencent.QQ.NT for QQ, retries alternate winget candidates when a manifest download URL is stale, and returns structured success/failure details. Only fall back to manual vendor download after this tool returns no candidates or all candidates failed.',
       description: 'Start a non-blocking background Windows winget software install job. Use this FIRST for desktop app installation requests before raw exec_command, web_search, fetch_url, browser_read, or manual installer downloads. It returns quickly with ok=true, status="started", and job_id; that means the background job has begun, not that installation has finished. The job then checks winget, searches candidates, prefers known modern package ids such as Tencent.QQ.NT before Tencent.QQ for QQ, runs winget show/install, and later sends a background APP_SIGNAL/event when it succeeds, fails, needs user attention, or is cancelled. Do not call this repeatedly for the same app; use list_processes to inspect software_install_jobs. Only fall back to manual vendor download after the final job result says no candidates or all candidates failed.',
       parameters: {
         type: 'object',
@@ -125,7 +124,6 @@ export const shellSchemas = {
     type: 'function',
     function: {
       name: 'list_processes',
-      description: 'List background processes with their recent output. Returns ok, count, and processes (each with pid, command, status running|exited, exit_code, started_at, exited_at, recent_output). Recently exited processes are retained for ~5 min so you can still read their final output and exit code. Use tail to control how many output lines to include per process (default 20, max 200).',
       description: 'List background processes with their recent output, plus background software install jobs. Returns ok, count, processes (each with pid, command, status running|exited, exit_code, started_at, exited_at, recent_output), and software_install_jobs with job_id/status/query/package_id/candidates/attempts. Recently exited shell processes are retained for ~5 min; software install jobs are retained longer so final success/failure can be inspected. Use tail to control how many shell output lines to include per process (default 20, max 200).',
       parameters: {
         type: 'object',

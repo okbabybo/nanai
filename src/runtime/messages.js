@@ -70,14 +70,10 @@ export function formatConversationMessage(row, currentMsg = null, prevChannel = 
     channelLabel += ` (channel switch: ${prevChannel} → ${normalizedChannel})`
   }
 
-  // P0-1：当前轮 topic 跟上一条非当前消息的 topic 不同 → marker 上显式标注话题切换。
-  //   注意必须跟 prevTopic 比，不是跟 row.focus_topic 自己比——
-  //   本轮 user 消息的 focus_topic 已经被 updateUserMessageFocusTopic 回填成 currentTopic，
-  //   它自己跟 currentTopic 永远相等。要看话题边界必须看上一条历史消息的 topic。
+  // Topic tags are weak bookkeeping hints, not facts about the user's intent.
+  // Do not render "topic switch from A → B" here: if thread attribution is wrong,
+  // that phrase turns a tentative runtime guess into a false premise for the model.
   let topicLabel = topicTag(row)
-  if (isCurrent && currentTopic && prevTopic && currentTopic !== prevTopic) {
-    topicLabel += ` (topic switch from ${prevTopic} → ${currentTopic})`
-  }
 
   return {
     role: 'user',
@@ -139,9 +135,10 @@ export function buildRuntimeContextMessages({ recentActions = [], actionLog = []
 }
 
 // P0-2：判断 conversationWindow 里某条 open_question 是否已"过期"。
-//   过期条件（任一满足即视为过期）：
+//   过期条件：
 //     1. 距今超过 N 条非 SYSTEM 消息且用户从未直接接茬这条问题
-//     2. 本轮 currentTopic 跟该 jarvis 行当时的 focus_topic 不同（话题已切走）
+//   Topic tags are deliberately not used as a hard expiry signal. They are
+//   heuristic bookkeeping and can be wrong on short/elliptical voice turns.
 //   "直接接茬"的简化判定：紧跟这条 jarvis 行之后的下一条 user 消息长度 >= 6 字
 //   且至少含 1 个中英文实词字符；极短回应（嗯/好/可以）不算接茬。
 const EXPIRED_FOLLOWUP_DISTANCE = 4
@@ -165,10 +162,7 @@ function computeExpiredFollowupSet(rows, currentTopic) {
     // 2. 距今 >= N 条对话
     const distance = rows.length - 1 - i
     const farEnough = distance >= EXPIRED_FOLLOWUP_DISTANCE
-    // 3. 话题已切
-    const rowTopic = (row.focus_topic || '').trim()
-    const topicSwitched = !!currentTopic && !!rowTopic && currentTopic !== rowTopic
-    if (farEnough || topicSwitched) expired.add(row.id ?? i)
+    if (farEnough) expired.add(row.id ?? i)
   }
   return expired
 }

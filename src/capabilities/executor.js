@@ -36,7 +36,8 @@ export { autoSpeakForVoiceReply } from './tools/media.js'
 
 import { config, setSecurity } from '../config.js'
 import { paths } from '../paths.js'
-import { lookupReplyTarget, normalizeChannel, suggestProactiveChannel } from '../identity.js'
+import { lookupReplyTarget, normalizeChannel, suggestProactiveChannel, isVoiceChannel } from '../identity.js'
+import { sanitizeAssistantReplyForDelivery } from '../runtime/markers.js'
 
 // P0-2：识别 send_message 末尾是否留了"非澄清型 follow-up question"。
 //   触发条件：
@@ -427,7 +428,7 @@ async function execSendMessage({ target_id, content = '', channel = 'AUTO', imag
   if (!target_id) return '错误：未提供 target_id'
 
   const resolvedId = normalizeConversationPartyId(target_id)
-  const cleanedContent = content == null ? '' : String(content).trim()
+  const cleanedContent = content == null ? '' : sanitizeAssistantReplyForDelivery(content)
   const media = prepareOutboundMedia({ image_path, media_path })
   if (media?.error) return `错误：${media.error}`
   if (!cleanedContent && !media) return '错误：未提供消息内容'
@@ -481,6 +482,11 @@ async function execSendMessage({ target_id, content = '', channel = 'AUTO', imag
     try { markConversationOpenQuestion(insertedId, true) } catch {}
   }
 
+  const shouldSpeakLocally = Boolean(cleanedContent)
+    && !media
+    && delivery.isLocal
+    && (context.voiceReply === true || isVoiceChannel(context.currentChannel))
+
   emitEvent('message', {
     from: 'consciousness',
     to: resolvedId,
@@ -488,6 +494,7 @@ async function execSendMessage({ target_id, content = '', channel = 'AUTO', imag
     timestamp,
     channel: channelLabel,
     external_party_id: delivery.externalTargetId || '',
+    ...(shouldSpeakLocally ? { speak: true } : {}),
     ...(media ? { media_path: media.path, media_kind: media.kind, file_name: media.fileName } : {}),
   })
 

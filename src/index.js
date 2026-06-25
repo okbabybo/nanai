@@ -41,7 +41,7 @@ import { collectTrending } from './trending.js'
 import { collectAgents, buildAgentContextBlock, buildDelegationAskDirections } from './agents/registry.js'
 import { refreshSkills, selectSkillsForMessage, formatSkillsForContext } from './skills/registry.js'
 import { tryAutoConfigureKey } from './key-auto-config.js'
-import { PRIMARY_USER_ID, formatPresenceForPrompt, normalizeChannel, isExternalChannel } from './identity.js'
+import { PRIMARY_USER_ID, formatPresenceForPrompt, normalizeChannel, isExternalChannel, isVoiceChannel } from './identity.js'
 import { truncateToolResultForUI } from './runtime/tool-result-preview.js'
 import { buildLLMMessages } from './runtime/messages.js'
 import { parseMarkers } from './runtime/markers.js'
@@ -105,6 +105,19 @@ await withStartupTimeout(collectAgents(), 15000, '[startup] agents')
 
 // Load persisted installed tools
 await withStartupTimeout(loadInstalledTools(), 12000, '[startup] installed-tools')
+
+// 本地嵌入模型预热：provider==='local' 时后台 fire-and-forget 建好 pipeline（含首次模型下载），
+// 让首条向量召回不被冷启动撞穿超时。绝不阻塞启动，失败静默（召回会自动退化为 FTS5）。
+;(async () => {
+  try {
+    const { getEmbeddingCredentials } = await import('./config.js')
+    const cred = getEmbeddingCredentials()
+    if (cred?.provider === 'local' && cred.model) {
+      const { warmupLocalEmbedding } = await import('./embedding-local.js')
+      warmupLocalEmbedding(cred.model).catch(() => {})
+    }
+  } catch {}
+})().catch(() => {})
 
 // Load Agent Skills metadata. Full SKILL.md bodies are injected only when a turn matches.
 const startupSkills = refreshSkills()
@@ -485,6 +498,10 @@ export function buildToolContext({ currentTargetId = null, conversationWindow = 
 }
 
 function buildToolContextForProcess(msg, injection) {
+  const currentChannel = msg?.notificationChannel || msg?.channel || null
+  const voiceReply = msg?.notificationVoiceReply === true
+    || msg?.voiceReply === true
+    || isVoiceChannel(currentChannel)
   const base = buildToolContext({
     currentTargetId: msg?.notificationTargetId || msg?.reminderTargetId || msg?.fromId || null,
     conversationWindow: injection.conversationWindow || [],
@@ -494,8 +511,9 @@ function buildToolContextForProcess(msg, injection) {
   return {
     ...base,
     // 当前 turn 的渠道信息：execSendMessage 在 AUTO 模式下优先用这里，确保"在哪儿收的消息就回到哪儿"
-    currentChannel: msg?.notificationChannel || msg?.channel || null,
+    currentChannel,
     currentExternalPartyId: msg?.notificationExternalPartyId || msg?.externalPartyId || null,
+    voiceReply,
     currentUserMessage: msg?.content || null,
     // 自我感知信号：传给工具执行层（如 upsert_memory 守门），让"镜像污染"在写入长期记忆前就被拦截
     selfPerception: injection.selfPerception || null,
@@ -620,10 +638,6 @@ function throwIfAborted(signal) {
 function getProcessPriority(msg) {
   if (!msg) return PRIORITY.tick
   return typeof msg.priority === 'number' ? msg.priority : PRIORITY.background
-}
-
-function isVoiceChannel(channel) {
-  return channel === 'voice' || channel === '语音识别' || channel === 'FocusBanner'
 }
 
 // 语音轮里"明显要往外部/社交渠道发送"的意图——命中则保留 send_message 工具，
@@ -1349,15 +1363,9 @@ async function runTurn(input, label, msg = null) {
         const resultForEvent = truncateToolResultForUI(parsed, resultText)
         emitEvent('tool_call', { name, args: cleanArgs, result: resultForEvent, ok })
         toolCallLog.push({ name, args: cleanArgs, result: resultText.slice(0, 500), ok, fallback: isFallbackDelivery, ack: isAckDelivery })
-        // 注：send_message 的 conversations 写入已由 executor.js 内统一处理（带 channel + external_party_id）
-        // 这里仅处理语音输入的 TTS 自动回放
-        // 语音渠道才自动播报。本轮若流出过正文（sawTextStream），说明前端已边出边逐句流式合成，
-        // 后端不再整段补一次，否则会和前端流式重复念。仅当没有正文流（极少：模型直接发了 send_message
-        // 而没流任何正文）时才由后端兜底整段合成，保证语音不会变哑。
-        if (name === 'send_message' && args?.content && isVoiceChannel(msg?.channel) && !sawTextStream) {
-          const speakText = String(args.content).trim()
-          if (speakText) autoSpeakForVoiceReply(speakText)
-        }
+        // send_message playback is driven by executor.js via message.speak.
+        // That covers explicit sends, slow acknowledgements, fallback delivery,
+        // and background job completion notifications through the same frontend path.
       },
       onRetry: ({ attempt, nextAttempt, maxAttempts, delayMs, error }) => {
         emitEvent('llm_retry', { attempt, nextAttempt, maxAttempts, delayMs, error })

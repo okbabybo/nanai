@@ -146,6 +146,46 @@ assertEqual(
 
 assertEqual(buildRuntimeContextMessages({}).length, 0, 'empty runtime context emits no messages')
 
+const topicMessages = buildLLMMessages({
+  systemPrompt: 'SYS',
+  conversationWindow: [
+    {
+      role: 'user',
+      from_id: 'ID:000001',
+      timestamp: '2026-06-25T10:00:00+08:00',
+      content: '智谱官网现在怎么样',
+      focus_topic: '智谱官网',
+    },
+    {
+      role: 'jarvis',
+      from_id: 'jarvis',
+      to_id: 'ID:000001',
+      timestamp: '2026-06-25T10:01:00+08:00',
+      content: '我看一下。',
+      focus_topic: '智谱官网',
+      open_question: 1,
+    },
+    {
+      role: 'user',
+      from_id: 'ID:000001',
+      timestamp: '2026-06-25T10:02:00+08:00',
+      content: '现在是什么情况',
+      focus_topic: '三元里',
+    },
+  ],
+  input: '[ID:000001] 2026-06-25T10:02:00+08:00 [voice] 现在是什么情况',
+  msg: {
+    fromId: 'ID:000001',
+    timestamp: '2026-06-25T10:02:00+08:00',
+    content: '现在是什么情况',
+    channel: 'voice',
+  },
+  currentTopic: '三元里',
+})
+const topicJoined = topicMessages.map(m => m.content || '').join('\n')
+assert(!topicJoined.includes('topic switch from'), 'topic labels do not assert a topic switch fact')
+assert(!topicJoined.includes('expired follow-up'), 'topic mismatch alone does not expire a follow-up')
+
 if (failed === 0) {
   console.log('\nAll runtime message checks complete.')
 } else {

@@ -3,7 +3,7 @@ import { spawn, spawnSync } from 'child_process'
 import { emitEvent } from '../../events.js'
 import { insertActionLog, getConfig, setConfig } from '../../db.js'
 import { pushMessage } from '../../queue.js'
-import { PRIMARY_USER_ID } from '../../identity.js'
+import { PRIMARY_USER_ID, isVoiceChannel } from '../../identity.js'
 import { projectInstallJobToScene } from './software-install-scene.js'
 
 const IS_WIN = process.platform === 'win32'
@@ -397,6 +397,8 @@ export function getSoftwareInstallJobSnapshot(jobOrId, { detail = true } = {}) {
     updated_at: job.updated_at,
     completed_at: job.completed_at || null,
     notify_target_id: job.notify_target_id || PRIMARY_USER_ID,
+    notify_channel: job.notify_channel || 'AUTO',
+    notify_voice_reply: job.notify_voice_reply === true,
     notification_sent: job.notification_sent === true,
   }
   if (detail) {
@@ -530,6 +532,7 @@ function enqueueAgentNotification(job) {
     notificationTargetId: job.notify_target_id || PRIMARY_USER_ID,
     notificationChannel: job.notify_channel || 'AUTO',
     notificationExternalPartyId: job.notify_external_party_id || null,
+    notificationVoiceReply: job.notify_voice_reply === true || isVoiceChannel(job.notify_channel),
     softwareInstallJobId: job.job_id,
   })
 }
@@ -790,6 +793,7 @@ export async function execInstallSoftware(args = {}, context = {}) {
     notify_target_id: context.currentTargetId || PRIMARY_USER_ID,
     notify_channel: context.currentChannel || 'AUTO',
     notify_external_party_id: context.currentExternalPartyId || null,
+    notify_voice_reply: context.voiceReply === true || isVoiceChannel(context.currentChannel),
     notification_sent: false,
     abortController: new AbortController(),
     runner: context.wingetRunner || defaultWingetRunner,
@@ -797,11 +801,11 @@ export async function execInstallSoftware(args = {}, context = {}) {
 
   softwareInstallJobs.set(job.job_id, job)
   registerActiveKeys(job)
-  persistJobSnapshots()
   writeInstallActionLog(job, 'ok')
   emitEvent('software_install_job_started', getSoftwareInstallJobSnapshot(job, { detail: false }))
-  // 起手就投影一张进度卡(started 阶段不走 updateJob,这里单独投一次)。
-  if (sideEffectsEnabled) projectInstallJobToScene(getSoftwareInstallJobSnapshot(job, { detail: false }))
+  // started 首帧的落库 + 进度卡投影统一走咽喉点 updateJob(空 patch 不改 status,只触发持久化与 Scene 投影),
+  // 让 projectInstallJobToScene 全仓库只有 updateJob 一个调用点,投影逻辑不再两处维护。
+  updateJob(job, {})
   emitEvent('action', {
     tool: 'install_software',
     summary: job.message,

@@ -317,8 +317,42 @@ function hasNone(tools, names) {
     isTick: false,
     senderId: 'ID:000001',
   })
-  assert(hasAll(tools, ['web_search', 'fetch_url', 'download_file', 'exec_task_command', 'exec_command', 'list_dir']),
-    `16) software install intent -> web + download + exec + fs tools injected (got: ${tools.join(',')})`)
+  assert(hasAll(tools, ['install_software', 'find_tool']),
+    `16) software install intent -> dedicated install tool injected (got: ${tools.join(',')})`)
+  assert(hasNone(tools, ['web_search', 'download_file', 'exec_command']),
+    `16) software install intent does not expose manual web/shell fallback before install_software (got: ${tools.join(',')})`)
+}
+
+{
+  const tools = selectTools({
+    messageBody: '现在请你帮我安装一个 QQ',
+    isTick: false,
+    senderId: 'ID:000001',
+  })
+  assert(has(tools, 'install_software'),
+    `16b) natural app install request -> install_software injected (got: ${tools.join(',')})`)
+  assert(hasAll(tools, ['install_tool', 'list_tools']),
+    '16b) admin tools may also be present, but software install tools must not be missed')
+}
+
+{
+  const tools = selectTools({
+    messageBody: '安装一个工具市场里的自定义工具',
+    isTick: false,
+    senderId: 'ID:000001',
+  })
+  assert(hasNone(tools, ['exec_command', 'exec_task_command', 'download_file']),
+    `16c) marketplace/tool-factory install request does not over-trigger software installer tools (got: ${tools.join(',')})`)
+}
+
+{
+  const tools = selectTools({
+    messageBody: 'please install QQ for me',
+    isTick: false,
+    senderId: 'ID:000001',
+  })
+  assert(has(tools, 'install_software'),
+    `16b-en) English app install request -> install_software injected (got: ${tools.join(',')})`)
 }
 
 {

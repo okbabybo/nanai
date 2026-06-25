@@ -1,11 +1,11 @@
 import OpenAI from 'openai'
-import { config, MIMO_PROVIDER, ZHIPU_PROVIDER, getProviderModelFallbacks, switchModel } from './config.js'
+import { config, MIMO_PROVIDER, ZHIPU_PROVIDER, getProviderModelFallbacks, shouldOmitSamplingForProviderModel, shouldSendThinkingDisabledForProviderModel, switchModel } from './config.js'
 import { executeTool } from './capabilities/executor.js'
 import { getToolSchemas } from './capabilities/schemas.js'
 import { recordUsage, shouldThrottle } from './quota.js'
 import { insertActionLog } from './db.js'
 import { isTerminalInternalToolRound } from './runtime/tool-protocol.js'
-import { stripMarkers } from './runtime/markers.js'
+import { sanitizeAssistantReplyForDelivery, createAssistantReplyStreamSanitizer } from './runtime/markers.js'
 import { beginTurn } from './runtime/turn-trace.js'
 import { createMergedAbortSignal } from './capabilities/abort-utils.js'
 import { filterStrictEvaluationTools, isToolForbiddenInStrictEvaluation, makeStrictForbiddenToolResult } from './runtime/strict-evaluation.js'
@@ -63,37 +63,45 @@ function shouldEnableDeepSeekThinking(thinking) {
   return true
 }
 
-function normalizeTemperatureForProvider(temperature) {
+function normalizeTemperatureForProvider(temperature, model = config.model) {
   if (typeof temperature !== 'number') return temperature
+  if (shouldOmitSamplingForProviderModel(config.provider, model)) return undefined
   if (config.provider !== ZHIPU_PROVIDER) return temperature
   return Math.max(0, Math.min(1, Number(temperature.toFixed(2))))
 }
 
-// 单次流式调用，返回 { content, toolCalls, aborted }
-async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens, thinking = true, signal, onStream, model = config.model }) {
-  const providerTemperature = normalizeTemperatureForProvider(temperature)
+function buildChatCompletionRequestParams({ messages, toolSchemas = [], temperature, topP, maxTokens, thinking = true, model = config.model }) {
+  const providerTemperature = normalizeTemperatureForProvider(temperature, model)
   const requestParams = {
     model,
-    temperature: providerTemperature,
     messages,
     stream: true,
+  }
+  if (typeof providerTemperature === 'number') {
+    requestParams.temperature = providerTemperature
   }
   if (config.provider !== ZHIPU_PROVIDER) {
     requestParams.stream_options = { include_usage: true }
   }
 
-  if (typeof topP === 'number' && topP > 0 && config.provider !== ZHIPU_PROVIDER) requestParams.top_p = topP
+  if (
+    typeof topP === 'number'
+    && topP > 0
+    && config.provider !== ZHIPU_PROVIDER
+    && !shouldOmitSamplingForProviderModel(config.provider, model)
+  ) {
+    requestParams.top_p = topP
+  }
   if (config.provider === 'deepseek') {
     const thinkingEnabled = shouldEnableDeepSeekThinking(thinking)
     if (thinkingEnabled) {
       requestParams.reasoning_effort = 'high'
       requestParams.thinking = { type: 'enabled' }
     } else {
-      // DeepSeek 拒绝 reasoning_effort 与 thinking.type='disabled' 组合
       requestParams.thinking = { type: 'disabled' }
     }
-  } else {
-    if (!thinking) requestParams.thinking = { type: 'disabled' }
+  } else if (!thinking && shouldSendThinkingDisabledForProviderModel(config.provider, model)) {
+    requestParams.thinking = { type: 'disabled' }
   }
   if (maxTokens) requestParams.max_tokens = maxTokens
   if (toolSchemas.length > 0) {
@@ -101,7 +109,20 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
     requestParams.tool_choice = 'auto'
     if (config.provider === ZHIPU_PROVIDER) requestParams.tool_stream = true
   }
+  return requestParams
+}
 
+// 单次流式调用，返回 { content, toolCalls, aborted }
+async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens, thinking = true, signal, onStream, model = config.model }) {
+  const requestParams = buildChatCompletionRequestParams({
+    model,
+    messages,
+    toolSchemas,
+    temperature,
+    topP,
+    maxTokens,
+    thinking,
+  })
   // ── 空闲超时（连接卡死保护）──
   // provider 连接开着却长时间不吐任何增量 = 停摆。每收到一个 chunk 就重置计时；超时则中止本轮，
   // 交给 streamOnceWithRetry 重试，避免把整个 turn 干耗到 index.js 的 180s watchdog 才被发现。
@@ -141,6 +162,19 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
   let usageTokens = 0
   let cacheHitTokens = 0
   let cacheMissTokens = 0
+  const textStreamSanitizer = createAssistantReplyStreamSanitizer()
+  const emitTextChunk = (rawText) => {
+    const cleanText = textStreamSanitizer.push(rawText)
+    if (!cleanText) return
+    if (!streamStarted) { onStream?.({ event: 'start', mode: 'text' }); streamStarted = true }
+    onStream?.({ event: 'chunk', text: cleanText })
+  }
+  const flushTextStream = () => {
+    const cleanText = textStreamSanitizer.flush()
+    if (!cleanText) return
+    if (!streamStarted) { onStream?.({ event: 'start', mode: 'text' }); streamStarted = true }
+    onStream?.({ event: 'chunk', text: cleanText })
+  }
 
   try {
   // create() 也放进 try：连接建立阶段就卡死时，idle 触发 → 这里抛 AbortError → 下方 catch 转成可重试的瞬时错误。
@@ -160,6 +194,7 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
 
     // 工具调用增量
     if (delta?.tool_calls) {
+      flushTextStream()
       if (streamStarted) {
         onStream?.({ event: 'end' })
         streamStarted = false
@@ -185,7 +220,7 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
     }
 
     // DeepSeek reasoner 思考内容（独立字段，不在 content 里）
-    const reasoningText = delta?.reasoning_content
+    const reasoningText = delta?.reasoning_content || delta?.reasoningContent || delta?.reasoning
     if (reasoningText) {
       fullReasoningContent += reasoningText
       if (!thinkDone) {
@@ -230,8 +265,7 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
           streamStarted = false
           const afterThink = fullContent.split('</think>').slice(1).join('</think>').trimStart()
           if (afterThink) {
-            onStream?.({ event: 'start', mode: 'text' }); streamStarted = true
-            onStream?.({ event: 'chunk', text: afterThink })
+            emitTextChunk(afterThink)
           }
         } else {
           if (!streamStarted) { onStream?.({ event: 'start', mode: 'think' }); streamStarted = true }
@@ -241,14 +275,14 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
       }
     }
 
-    if (!streamStarted) { onStream?.({ event: 'start', mode: 'text' }); streamStarted = true }
-    onStream?.({ event: 'chunk', text })
+    emitTextChunk(text)
   }
 
   } catch (err) {
     // 空闲超时（我们自己的看门狗触发）且调用方并未中止 —— 当作瞬时错误上抛，由 streamOnceWithRetry 重试，
     // 而不是误判成"用户中止"(aborted:true) 把本轮静默放弃。
     if (idleFired && !signal?.aborted) {
+      flushTextStream()
       if (streamStarted) onStream?.({ event: 'end' })
       const e = new Error(`stream idle timeout after ${STREAM_IDLE_TIMEOUT_MS / 1000}s`)
       e.code = 'ETIMEDOUT'
@@ -256,21 +290,24 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
       throw e
     }
     if (err.name === 'AbortError' || signal?.aborted) {
+      flushTextStream()
       if (streamStarted) onStream?.({ event: 'end' })
       return {
-        content: fullContent,
+        content: sanitizeAssistantReplyForDelivery(fullContent),
         reasoningContent: fullReasoningContent,
         toolCalls: Object.values(toolCallsMap),
         aborted: true
       }
     }
     err.hadContent = fullContent.length > 0
+    flushTextStream()
     if (streamStarted) onStream?.({ event: 'end' })
     throw err
   } finally {
     cleanupIdle()
   }
 
+  flushTextStream()
   if (streamStarted) onStream?.({ event: 'end' })
   if (usageTokens > 0) {
     recordUsage(usageTokens)
@@ -282,11 +319,15 @@ async function streamOnce({ messages, toolSchemas, temperature, topP, maxTokens,
   }
 
   return {
-    content: fullContent,
+    content: sanitizeAssistantReplyForDelivery(fullContent),
     reasoningContent: fullReasoningContent,
     toolCalls: Object.values(toolCallsMap),
     aborted: false
   }
+}
+
+export const __internals = {
+  buildChatCompletionRequestParams,
 }
 
 // 判断是否为瞬时错误（5xx / 网络抖动 / 超时），429 交给外层 setRateLimited
@@ -511,7 +552,7 @@ function shouldPersistActionLog(toolName) {
 // 文本标记后返回正文。内容本身不做客套裁剪 / 行去重 / 改写。
 function stripProtocolMarkersForDelivery(text) {
   // 单一真相源：src/runtime/markers.js。剥离语义（含末尾 trim）与原正则完全一致。
-  return stripMarkers(text)
+  return sanitizeAssistantReplyForDelivery(text)
 }
 
 const TOOL_LOOP_LIMITS = {

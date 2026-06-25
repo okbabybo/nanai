@@ -237,6 +237,10 @@ const createSettingsModal = () => `
               <label class="settings-label" for="settings-model-select">模型</label>
               <select class="settings-select" id="settings-model-select"></select>
             </div>
+            <div class="settings-row" id="settings-official-custom-model-row" style="display:none;">
+              <label class="settings-label" for="settings-official-custom-model">自定义模型名</label>
+              <input class="settings-input" id="settings-official-custom-model" type="text" placeholder="如 kimi-k2.8, gpt-5.2, glm-6" autocomplete="off" spellcheck="false">
+            </div>
             <!-- 自定义端点字段（选择"自定义端点"时显示） -->
             <div id="settings-custom-llm-section" style="display:none;">
               <div class="settings-row">

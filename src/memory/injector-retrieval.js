@@ -136,14 +136,17 @@ export async function searchRelevantMemories({
 
   // 向量召回兜底：focusText 算 embedding，找 FTS5 没召回到的 top-N 语义相似记忆，
   // 追加到 focus 桶末尾。失败/超时/未配置时静默跳过，行为完全等同 FTS5-only。
-  // 注：800ms 硬超时——挡在主 LLM 调用之前，embedding 网络慢一点都会被用户感知为"卡顿"
+  // 注：硬超时挡在主 LLM 调用之前，慢一点都会被用户感知为"卡顿"。
+  //     远程 provider 800ms（网络方差）；local 离线推理无网络方差但 CPU 慢，放宽到 ~1500ms，
+  //     由 getEmbeddingTimeoutMs() 按 provider 返回。focusText 是 query，传 isQuery:true。
   let vecAppended = []
   try {
-    const { computeEmbedding, isEmbeddingConfigured } = await import('../embedding.js')
+    const { computeEmbedding, isEmbeddingConfigured, getEmbeddingTimeoutMs } = await import('../embedding.js')
     if (isEmbeddingConfigured() && focusText) {
+      const timeoutMs = getEmbeddingTimeoutMs()
       const queryEmb = await Promise.race([
-        computeEmbedding(focusText),
-        new Promise(resolve => setTimeout(() => resolve(null), 800)),
+        computeEmbedding(focusText, { isQuery: true }),
+        new Promise(resolve => setTimeout(() => resolve(null), timeoutMs)),
       ])
       if (queryEmb) {
         const { searchByEmbedding } = await import('../db.js')

@@ -8,6 +8,7 @@ export const CHANNEL_NORMALIZE = {
   TUI: 'TUI',
   API: 'TUI',
   voice: 'TUI',
+  VOICE: 'TUI',
   '语音识别': 'TUI',
   FocusBanner: 'TUI',
   REMINDER: 'SYSTEM',
@@ -18,10 +19,16 @@ export const CHANNEL_NORMALIZE = {
 // LLM 可选的 channel 枚举（send_message 工具用）
 export const PUBLIC_CHANNELS = ['WECHAT', 'DISCORD', 'FEISHU', 'WECOM', 'TUI', 'AUTO']
 
+export const VOICE_CHANNELS = new Set(['voice', 'VOICE', '语音识别', 'FocusBanner'])
+
 export function normalizeChannel(channel) {
   if (!channel) return 'TUI'
   if (CHANNEL_NORMALIZE[channel] != null) return CHANNEL_NORMALIZE[channel]
   return String(channel).toUpperCase()
+}
+
+export function isVoiceChannel(channel) {
+  return VOICE_CHANNELS.has(String(channel || ''))
 }
 
 // 共享谓词：判断这条对话记录是不是"系统信号"（非用户/非 jarvis 的真实消息），

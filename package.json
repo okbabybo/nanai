@@ -1,7 +1,7 @@
 {
   "name": "bailongma",
   "productName": "Bailongma",
-  "version": "2.1.435",
+  "version": "2.1.443",
   "description": "A continuously running digital consciousness framework",
   "type": "module",
   "main": "electron/main.cjs",
@@ -41,6 +41,7 @@
     "smoke:social": "node scripts/smoke-social.mjs"
   },
   "dependencies": {
+    "@huggingface/transformers": "^3.0.0",
     "better-sqlite3": "^12.8.0",
     "d3": "^7.9.0",
     "electron-updater": "^6.3.9",
@@ -62,6 +63,8 @@
     "asar": true,
     "asarUnpack": [
       "**/node_modules/better-sqlite3/**",
+      "**/node_modules/@huggingface/transformers/**",
+      "**/node_modules/onnxruntime-node/**",
       "build/native-speech-recognizer",
       "src/voice/**"
     ],

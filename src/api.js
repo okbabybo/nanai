@@ -1575,6 +1575,15 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           const { clearEmbeddingCache } = await import('./embedding.js')
           clearEmbeddingCache()
         } catch {}
+        // 切到 local：后台 fire-and-forget 预热（含首次模型下载），不阻塞响应
+        try {
+          const { getEmbeddingCredentials } = await import('./config.js')
+          const cred = getEmbeddingCredentials()
+          if (cred?.provider === 'local' && cred.model) {
+            const { warmupLocalEmbedding } = await import('./embedding-local.js')
+            warmupLocalEmbedding(cred.model).catch(() => {})
+          }
+        } catch {}
         jsonResponse(res, 200, { ok: true, embedding: getEmbeddingConfig() })
       } catch (err) {
         jsonResponse(res, 400, { ok: false, error: err.message })
@@ -1630,9 +1639,17 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
           jsonResponse(res, 200, { ok: true, started: false, reason: 'already running', status: beforeStatus })
           return
         }
+        // force=true：全量重算（切换嵌入模型后刷新维度）；否则只补 embedding IS NULL
+        let force = false
+        try {
+          const chunks = []
+          for await (const chunk of req) chunks.push(chunk)
+          const body = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}')
+          force = !!body.force
+        } catch {}
         // fire-and-forget：不 await，立即响应
-        runBackfill({ batchSize: 20, throttleMs: 200 }).catch(() => {})
-        jsonResponse(res, 200, { ok: true, started: true, status: getBackfillStatus() })
+        runBackfill({ batchSize: 20, throttleMs: 200, force }).catch(() => {})
+        jsonResponse(res, 200, { ok: true, started: true, force, status: getBackfillStatus() })
       } catch (err) {
         jsonResponse(res, 500, { ok: false, error: err.message })
       }

@@ -1438,6 +1438,7 @@ function handle({ type, data = {} }) {
     case "message":
       if (data.from === "consciousness") {
         lastJarvisContent = data.content;
+        const shouldSpeakMessage = data.speak === true;
         const viaLabel = friendlyChannelLabel(data.channel);
         const content = viaLabel ? `_→ ${viaLabel}_  \n${data.content}` : data.content;
         // 若本轮正文已流式进了实时气泡：用权威全文定稿同一个气泡，避免新建重复气泡
@@ -1450,6 +1451,8 @@ function handle({ type, data = {} }) {
         if (liveTurnSpeak) {
           if (sttsActive) finalizeStreamingTTS();
           else playTTSReply(toPlainSpeech(data.content));
+        } else if (shouldSpeakMessage) {
+          playTTSReplyIfReadable(data.content);
         }
         liveReplyActive = false;
         liveRawText = "";
@@ -1909,6 +1912,11 @@ function toPlainSpeech(md) {
     .replace(/!\[[^\]]*\]\([^\)]+\)/g, '')
     .replace(/\n+/g, ' ')
     .trim();
+}
+
+function playTTSReplyIfReadable(text) {
+  const plain = toPlainSpeech(text);
+  if (plain && sttsHasReadable(plain)) playTTSReply(plain);
 }
 
 // ── 逐句流式 TTS 队列 ──────────────────────────────────────────────────────────
@@ -2456,6 +2464,7 @@ function initTTSSettings() {
   const closeBtn        = document.getElementById("settings-close");
   const providerSelect  = document.getElementById("settings-provider-select");
   const modelSelect     = document.getElementById("settings-model-select");
+  const officialCustomModelInput = document.getElementById("settings-official-custom-model");
   const llmKeyInput     = document.getElementById("settings-llm-key");
   const llmKeyToggle    = document.getElementById("settings-llm-key-toggle");
   const saveLlmBtn      = document.getElementById("settings-save-llm");
@@ -2491,6 +2500,7 @@ function initTTSSettings() {
   let cachedLlm = null;
   let llmKeyVisible = false;
   const agentNameRe = /^[一-龥A-Za-z0-9 _-]+$/;
+  const CUSTOM_MODEL_VALUE = "__custom_model__";
 
   overlay.querySelectorAll(".settings-nav-item").forEach(btn => {
     btn.addEventListener("click", () => {
@@ -2531,12 +2541,38 @@ function initTTSSettings() {
     }
   }
 
+  function escapeHtml(text) {
+    return String(text ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function syncOfficialCustomModelRow() {
+    const customRow = document.getElementById("settings-official-custom-model-row");
+    if (!customRow || !modelSelect) return;
+    customRow.style.display = modelSelect.value === CUSTOM_MODEL_VALUE ? "" : "none";
+  }
+
   function populateModelSelect(models, current) {
     if (!modelSelect || !models) return;
-    modelSelect.innerHTML = models
-      .map(m => `<option value="${m.id}"${m.deprecated ? " data-deprecated" : ""}>${m.label}</option>`)
+    const list = Array.isArray(models) ? models.filter(m => m?.id) : [];
+    const currentModel = String(current || "").trim();
+    const hasCurrent = currentModel && list.some(m => m.id === currentModel);
+    modelSelect.innerHTML = list
+      .map(m => `<option value="${escapeHtml(m.id)}"${m.deprecated ? " data-deprecated" : ""}>${escapeHtml(m.label || m.id)}</option>`)
+      .concat(`<option value="${CUSTOM_MODEL_VALUE}">手动输入模型名…</option>`)
       .join("");
-    if (current) modelSelect.value = current;
+    if (hasCurrent) {
+      modelSelect.value = currentModel;
+      if (officialCustomModelInput) officialCustomModelInput.value = "";
+    } else if (currentModel) {
+      modelSelect.value = CUSTOM_MODEL_VALUE;
+      if (officialCustomModelInput) officialCustomModelInput.value = currentModel;
+    }
+    syncOfficialCustomModelRow();
   }
 
   function populateProviderSelect(providers, current) {
@@ -2545,7 +2581,7 @@ function initTTSSettings() {
     const options = [`<option value="auto">Auto-detect</option>`]
       .concat(Object.entries(providers).map(([id, provider]) => {
         const label = provider.label || id;
-        return `<option value="${id}">${label}</option>`;
+        return `<option value="${escapeHtml(id)}">${escapeHtml(label)}</option>`;
       }));
     providerSelect.innerHTML = options.join("");
     providerSelect.value = providers[selected] || selected === "auto" ? selected : "auto";
@@ -2579,9 +2615,11 @@ function initTTSSettings() {
     const providerCfg = getProviderConfigForUI(provider, typeof providerOrLlm === "object" ? providerOrLlm : cachedLlm);
     const customSection = document.getElementById("settings-custom-llm-section");
     const modelRow = document.getElementById("settings-model-row");
+    const officialCustomModelRow = document.getElementById("settings-official-custom-model-row");
     if (provider === "auto") {
       if (customSection) customSection.style.display = "none";
       if (modelRow) modelRow.style.display = "none";
+      if (officialCustomModelRow) officialCustomModelRow.style.display = "none";
       if (llmKeyInput) llmKeyInput.value = "";
       setLlmKeyVisible(false);
       return;
@@ -2589,6 +2627,7 @@ function initTTSSettings() {
     if (provider === "custom") {
       if (customSection) customSection.style.display = "";
       if (modelRow) modelRow.style.display = "none";
+      if (officialCustomModelRow) officialCustomModelRow.style.display = "none";
       const baseUrlEl = document.getElementById("settings-custom-baseurl");
       const modelEl = document.getElementById("settings-custom-model");
       if (baseUrlEl) baseUrlEl.value = providerCfg.baseURL || "";
@@ -3273,6 +3312,10 @@ function initTTSSettings() {
     });
   }
 
+  if (modelSelect) {
+    modelSelect.addEventListener("change", syncOfficialCustomModelRow);
+  }
+
   saveAgentNameBtn?.addEventListener("click", async () => {
     const nextName = agentNameInput?.value?.trim() || "";
     if (nextName.length > 32) {
@@ -3334,7 +3377,16 @@ function initTTSSettings() {
         }
         body.apiKey = apiKey;
       } else {
-        body.model = modelSelect.value;
+        if (modelSelect.value === CUSTOM_MODEL_VALUE) {
+          body.model = officialCustomModelInput?.value?.trim();
+          if (!body.model) {
+            showFeedback(llmFeedback, "请填入模型名称", true);
+            saveLlmBtn.disabled = false;
+            return;
+          }
+        } else {
+          body.model = modelSelect.value;
+        }
         if (apiKey && apiKey !== (selectedCfg.apiKey || "")) body.apiKey = apiKey;
       }
 

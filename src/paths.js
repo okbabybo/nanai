@@ -36,6 +36,8 @@ export const paths = {
   // 聊天媒体的内容寻址副本：发/收图时把字节按 sha256 命名落到这里，
   // 与易失的原始路径（截图、临时文件）解耦——原文件删了或被同名替换，聊天记录里的图仍在。
   mediaDir: ensureDir(path.join(USER_DIR, 'data', 'media')),
+  // 本地嵌入模型缓存目录：transformers.js 首次下载 ONNX 模型落这里，之后离线命中。
+  modelsDir: ensureDir(path.join(USER_DIR, 'data', 'models')),
   configFile: path.join(USER_DIR, 'config.json'),
   llmConfigDir: ensureDir(path.join(USER_DIR, 'llm')),
   // seedance（AI 视频生成）单独成文件，与主 config.json 物理隔离，
