@@ -1,4 +1,4 @@
-import { recordTerminalStreamEvent } from './terminal-stream.js'
+import { getTerminalStreamSnapshot, recordTerminalStreamEvent } from './terminal-stream.js'
 
 const STREAM_ID = 'write_file'
 const DEFAULT_TITLE = 'Writing file'
@@ -31,6 +31,7 @@ const PATH_KEYS = [
 ]
 const RECENT_TTL_MS = 5 * 60 * 1000
 const REPLAY_CHUNK_SIZE = 1200
+const AUTO_CLOSE_DELAY_MS = 1600
 const NON_FILE_WRITE_TOOLS = new Set([
   'send_message',
   'express',
@@ -52,8 +53,13 @@ const NON_FILE_WRITE_TOOLS = new Set([
 ])
 const FILE_WRITE_NAME_RE = /(^|_)(write|save|create|append|edit|update|generate|export)(_|$)|(^|_)(file|document|doc|article|markdown|md|html|code|script|page|note|text)(_|$)/i
 const FILE_OBJECT_NAME_RE = /(^|_)(file|document|doc|article|markdown|md|html|code|script|page|note|text)(_|$)/i
+const MARKDOWN_PATH_RE = /\.(md|markdown|mdown|mkd|mdx)$/i
+const ARTICLE_TOOL_RE = /(^|_)(article|essay|report|document|doc|markdown|md|note|text)(_|$)/i
+const ARTICLE_BASENAME_RE = /(^|[_. -])(article|essay|report|document|doc|markdown|md|note|notes|plan|story|post|draft)([_. -]|$)/i
+const CODE_PATH_RE = /\.(js|mjs|cjs|ts|tsx|jsx|py|java|c|cc|cpp|h|hpp|cs|go|rs|rb|php|swift|kt|kts|html|css|scss|sass|json|yaml|yml|toml|xml|sql|sh|bash|ps1|bat|cmd|vue|svelte)$/i
 
 const recentPreviews = new Map()
+const autoCloseTimers = new Map()
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -68,6 +74,10 @@ function cleanToolName(name = '') {
   return String(name || '').trim() || 'write_file'
 }
 
+function baseNameLike(pathValue = '') {
+  return String(pathValue || '').split(/[\\/]/).pop() || ''
+}
+
 function emitTerminalEvent({
   action = 'write',
   stream_id = STREAM_ID,
@@ -75,15 +85,100 @@ function emitTerminalEvent({
   text = '',
   newline = true,
   level = 'info',
+  format = '',
+  artifact_kind = '',
+  artifact_path = '',
+  hold_open,
 } = {}) {
   const bridge = globalThis?.terminalStreamBridge
   const normalizedAction = String(action || 'write').trim().toLowerCase()
+  if (normalizedAction === 'clear' || normalizedAction === 'open') cancelAutoClose(stream_id)
   if (bridge && ['open', 'write', 'clear'].includes(normalizedAction)) {
-    bridge.emit('open', { title, stream_id })
+    bridge.emit('open', { title, stream_id, placement: 'auto', focus: false, source: 'write_file_preview' })
   } else if (bridge && normalizedAction === 'close') {
     bridge.emit('close', { stream_id })
   }
-  return recordTerminalStreamEvent({ action: normalizedAction, stream_id, title, text, newline, level })
+  return recordTerminalStreamEvent({
+    action: normalizedAction,
+    stream_id,
+    title,
+    text,
+    newline,
+    level,
+    format,
+    artifact_kind,
+    artifact_path,
+    hold_open,
+  })
+}
+
+function autoCloseDelayMs() {
+  const override = Number(globalThis?.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS)
+  return Number.isFinite(override) && override >= 0 ? override : AUTO_CLOSE_DELAY_MS
+}
+
+function cancelAutoClose(streamId = STREAM_ID) {
+  const timer = autoCloseTimers.get(streamId)
+  if (!timer) return
+  clearTimeout(timer)
+  autoCloseTimers.delete(streamId)
+}
+
+function scheduleAutoCloseWriteFilePreview({ title = DEFAULT_TITLE, artifact = {} } = {}) {
+  if (artifact.hold_open) return false
+  const streamId = STREAM_ID
+  const expectedPath = previewKey(artifact.artifact_path)
+  cancelAutoClose(streamId)
+
+  const timer = setTimeout(() => {
+    autoCloseTimers.delete(streamId)
+    const snapshot = getTerminalStreamSnapshot(streamId)
+    if (snapshot.closed || snapshot.hold_open) return
+    if (expectedPath && previewKey(snapshot.artifact_path) !== expectedPath) return
+
+    try {
+      globalThis?.terminalStreamBridge?.emit?.('close', {
+        stream_id: streamId,
+        source: 'write_file_auto_close',
+        artifact_path: snapshot.artifact_path,
+      })
+    } catch {}
+    recordTerminalStreamEvent({ action: 'close', stream_id: streamId, title, force: true })
+  }, autoCloseDelayMs())
+  if (typeof timer.unref === 'function') timer.unref()
+  autoCloseTimers.set(streamId, timer)
+  return true
+}
+
+function inferWriteFileArtifact({ path = '', toolName = '' } = {}) {
+  const cleanPath = String(path || '').trim()
+  const cleanBaseName = baseNameLike(cleanPath)
+  const cleanName = cleanToolName(toolName)
+  const code = CODE_PATH_RE.test(cleanPath) && !MARKDOWN_PATH_RE.test(cleanPath)
+  const markdown = MARKDOWN_PATH_RE.test(cleanPath)
+    || (!code && (ARTICLE_TOOL_RE.test(cleanName) || ARTICLE_BASENAME_RE.test(cleanBaseName)))
+  if (markdown) {
+    return {
+      format: 'markdown',
+      artifact_kind: 'article',
+      artifact_path: cleanPath,
+      hold_open: true,
+    }
+  }
+  if (code) {
+    return {
+      format: 'code',
+      artifact_kind: 'code',
+      artifact_path: cleanPath,
+      hold_open: false,
+    }
+  }
+  return {
+    format: 'plain',
+    artifact_kind: cleanPath ? 'file' : '',
+    artifact_path: cleanPath,
+    hold_open: false,
+  }
 }
 
 function previewKey(pathValue = '') {
@@ -306,12 +401,13 @@ export function streamWriteFileArgumentPreview(toolCall = {}, state = {}) {
 
   state.toolName = toolName
   const title = cleanTitle(state.path)
+  const artifact = inferWriteFileArtifact({ path: state.path, toolName })
 
   if (!state.opened) {
     if (state.session && state.session.cleared) {
-      emitTerminalEvent({ action: 'open', title })
+      emitTerminalEvent({ action: 'open', title, ...artifact })
     } else {
-      emitTerminalEvent({ action: 'clear', title })
+      emitTerminalEvent({ action: 'clear', title, ...artifact })
       if (state.session) state.session.cleared = true
     }
     state.opened = true
@@ -326,6 +422,7 @@ export function streamWriteFileArgumentPreview(toolCall = {}, state = {}) {
       text: `$ ${toolName} ${state.path || '(pending path)'}\n\n`,
       newline: false,
       level: 'muted',
+      ...artifact,
     })
     state.headerWritten = true
   }
@@ -334,7 +431,7 @@ export function streamWriteFileArgumentPreview(toolCall = {}, state = {}) {
   if (state.visibleLength > visible.length) state.visibleLength = 0
   const delta = visible.slice(state.visibleLength || 0)
   if (delta) {
-    emitTerminalEvent({ action: 'write', title, text: delta, newline: false })
+    emitTerminalEvent({ action: 'write', title, text: delta, newline: false, ...artifact })
     state.visibleLength = visible.length
     if (state.path) markRecentPreview(state.path, state.visibleLength)
   }
@@ -363,12 +460,13 @@ export function streamXmlFileWriteArgumentPreview(source = '', state = {}) {
 
   state.toolName = toolName
   const title = cleanTitle(state.path)
+  const artifact = inferWriteFileArtifact({ path: state.path, toolName })
 
   if (!state.opened) {
     if (state.session && state.session.cleared) {
-      emitTerminalEvent({ action: 'open', title })
+      emitTerminalEvent({ action: 'open', title, ...artifact })
     } else {
-      emitTerminalEvent({ action: 'clear', title })
+      emitTerminalEvent({ action: 'clear', title, ...artifact })
       if (state.session) state.session.cleared = true
     }
     state.opened = true
@@ -383,6 +481,7 @@ export function streamXmlFileWriteArgumentPreview(source = '', state = {}) {
       text: `$ ${toolName} ${state.path || '(pending path)'}\n\n`,
       newline: false,
       level: 'muted',
+      ...artifact,
     })
     state.headerWritten = true
   }
@@ -391,7 +490,7 @@ export function streamXmlFileWriteArgumentPreview(source = '', state = {}) {
   if (state.visibleLength > visible.length) state.visibleLength = 0
   const delta = visible.slice(state.visibleLength || 0)
   if (delta) {
-    emitTerminalEvent({ action: 'write', title, text: delta, newline: false })
+    emitTerminalEvent({ action: 'write', title, text: delta, newline: false, ...artifact })
     state.visibleLength = visible.length
     if (state.path) markRecentPreview(state.path, state.visibleLength)
   }
@@ -404,17 +503,19 @@ export function streamWriteFileExecutionPreview({ toolName = 'write_file', path 
   const cleanName = cleanToolName(toolName)
   const body = String(content ?? '')
   const title = cleanTitle(path)
+  const artifact = inferWriteFileArtifact({ path, toolName: cleanName })
   const recent = getRecentPreview(path)
   const alreadyStreamed = recent && recent.visibleLength >= Math.min(body.length, 1)
 
   if (!alreadyStreamed) {
-    emitTerminalEvent({ action: 'clear', title })
+    emitTerminalEvent({ action: 'clear', title, ...artifact })
     emitTerminalEvent({
       action: 'write',
       title,
       text: `$ ${cleanName} ${path || '(unknown path)'}\n\n`,
       newline: false,
       level: 'muted',
+      ...artifact,
     })
     for (let i = 0; i < body.length; i += REPLAY_CHUNK_SIZE) {
       emitTerminalEvent({
@@ -422,6 +523,7 @@ export function streamWriteFileExecutionPreview({ toolName = 'write_file', path 
         title,
         text: body.slice(i, i + REPLAY_CHUNK_SIZE),
         newline: false,
+        ...artifact,
       })
     }
     if (path) markRecentPreview(path, body.length)
@@ -436,7 +538,13 @@ export function streamWriteFileExecutionPreview({ toolName = 'write_file', path 
       text: `\n\n[${cleanName} ${status}${byteText}]\n`,
       newline: false,
       level: verified === false ? 'error' : 'success',
+      ...artifact,
     })
+    if (verified === true) {
+      scheduleAutoCloseWriteFilePreview({ title, artifact })
+    } else if (verified === false) {
+      cancelAutoClose(STREAM_ID)
+    }
   }
 }
 

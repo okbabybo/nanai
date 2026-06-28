@@ -144,6 +144,7 @@ const focusBannerBridge = new EventEmitter()
 global.focusBannerBridge = focusBannerBridge
 const terminalStreamBridge = new EventEmitter()
 global.terminalStreamBridge = terminalStreamBridge
+global.getBailongmaWindowLayoutSnapshot = getBailongmaWindowLayoutSnapshot
 global.bailongmaAppControl = {
   restart() {
     console.log('[main] restart requested')
@@ -447,28 +448,362 @@ focusBannerBridge.on('hide', () => {
 // ─── 语音唤醒:隐藏"耳朵"窗口 + 主进程 KWS ───
 // 隐藏窗口常开麦克风 → AudioWorklet 出 16kHz Float32 → IPC → 主进程 KeywordSpotter。
 // 第一步只检测+写日志(USER_DIR/logs/wake-word.log),命中"白龙马"不做其他动作。
-function createTerminalStreamWindow({ title = 'Bailongma Terminal Stream', stream_id = 'default' } = {}) {
+const TERMINAL_STREAM_DEFAULT_WIDTH = 560
+const TERMINAL_STREAM_DEFAULT_HEIGHT = 830
+const TERMINAL_STREAM_MIN_WIDTH = 420
+const TERMINAL_STREAM_MIN_HEIGHT = 420
+const TERMINAL_STREAM_GAP = 16
+const TERMINAL_STREAM_MARGIN = 12
+const MAIN_WINDOW_SIDECAR_MIN_WIDTH = 900
+const MAIN_WINDOW_SIDECAR_MIN_HEIGHT = 600
+
+function clampNumber(value, min, max) {
+  if (max < min) return min
+  return Math.max(min, Math.min(max, value))
+}
+
+function rectRight(rect) {
+  return rect.x + rect.width
+}
+
+function rectBottom(rect) {
+  return rect.y + rect.height
+}
+
+function rectOverlapArea(a, b) {
+  if (!a || !b) return 0
+  const x1 = Math.max(a.x, b.x)
+  const y1 = Math.max(a.y, b.y)
+  const x2 = Math.min(rectRight(a), rectRight(b))
+  const y2 = Math.min(rectBottom(a), rectBottom(b))
+  return Math.max(0, x2 - x1) * Math.max(0, y2 - y1)
+}
+
+function roundBounds(bounds) {
+  return {
+    x: Math.round(bounds.x),
+    y: Math.round(bounds.y),
+    width: Math.round(bounds.width),
+    height: Math.round(bounds.height),
+  }
+}
+
+function fitBoundsToWorkArea(bounds, workArea) {
+  const width = clampNumber(
+    Math.round(bounds.width || TERMINAL_STREAM_DEFAULT_WIDTH),
+    Math.min(TERMINAL_STREAM_MIN_WIDTH, workArea.width),
+    workArea.width
+  )
+  const height = clampNumber(
+    Math.round(bounds.height || TERMINAL_STREAM_DEFAULT_HEIGHT),
+    Math.min(TERMINAL_STREAM_MIN_HEIGHT, workArea.height),
+    workArea.height
+  )
+  const x = clampNumber(
+    Math.round(bounds.x ?? (workArea.x + workArea.width - width - TERMINAL_STREAM_MARGIN)),
+    workArea.x,
+    workArea.x + workArea.width - width
+  )
+  const y = clampNumber(
+    Math.round(bounds.y ?? (workArea.y + TERMINAL_STREAM_MARGIN)),
+    workArea.y,
+    workArea.y + workArea.height - height
+  )
+  return { x, y, width, height }
+}
+
+function parseTerminalRequestedBounds(payload = {}) {
+  const raw = payload && typeof payload.bounds === 'object' && payload.bounds
+    ? payload.bounds
+    : payload
+  const out = {}
+  for (const key of ['x', 'y', 'width', 'height']) {
+    const value = Number(raw?.[key])
+    if (Number.isFinite(value)) out[key] = value
+  }
+  return Object.keys(out).length > 0 ? out : null
+}
+
+function getDisplayForTerminalWindow(payload = {}) {
+  const { screen } = require('electron')
+  const requested = parseTerminalRequestedBounds(payload)
+  if (Number.isFinite(requested?.x) && Number.isFinite(requested?.y)) {
+    return screen.getDisplayNearestPoint({ x: Math.round(requested.x), y: Math.round(requested.y) })
+  }
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized()) {
+    return screen.getDisplayMatching(mainWindow.getBounds())
+  }
+  return screen.getPrimaryDisplay()
+}
+
+function windowSnapshot(win) {
+  if (!win || win.isDestroyed()) return null
+  let bounds = null
+  try { bounds = win.getBounds() } catch {}
+  if (!bounds) return null
+  return {
+    id: win.id,
+    title: win.getTitle(),
+    visible: win.isVisible(),
+    focused: win.isFocused(),
+    minimized: win.isMinimized(),
+    maximized: win.isMaximized(),
+    fullscreen: win.isFullScreen(),
+    bounds,
+  }
+}
+
+function getBailongmaWindowLayoutSnapshot() {
+  const { screen } = require('electron')
+  const displays = screen.getAllDisplays().map(display => ({
+    id: display.id,
+    scaleFactor: display.scaleFactor,
+    bounds: display.bounds,
+    workArea: display.workArea,
+  }))
+  const windows = BrowserWindow.getAllWindows()
+    .map(windowSnapshot)
+    .filter(Boolean)
+  return { displays, windows }
+}
+
+function visibleWindowBlockers(display, excludeWindow = null) {
+  const { screen } = require('electron')
+  return BrowserWindow.getAllWindows()
+    .filter(win => win && win !== excludeWindow && !win.isDestroyed() && win.isVisible() && !win.isMinimized())
+    .map(win => {
+      const bounds = win.getBounds()
+      return screen.getDisplayMatching(bounds).id === display.id ? bounds : null
+    })
+    .filter(Boolean)
+}
+
+function candidateFromRegion(region, desired, anchor = {}) {
+  if (!region || region.width < TERMINAL_STREAM_MIN_WIDTH || region.height < TERMINAL_STREAM_MIN_HEIGHT) return null
+  const width = Math.min(desired.width, region.width)
+  const height = Math.min(desired.height, region.height)
+  return fitBoundsToWorkArea({
+    x: anchor.x ?? region.x,
+    y: anchor.y ?? region.y,
+    width,
+    height,
+  }, region)
+}
+
+function candidateForPlacement(placement, workArea, desired) {
+  const width = Math.min(desired.width, workArea.width)
+  const height = Math.min(desired.height, workArea.height)
+  const cx = workArea.x + Math.round((workArea.width - width) / 2)
+  const cy = workArea.y + Math.round((workArea.height - height) / 2)
+  const right = workArea.x + workArea.width - width - TERMINAL_STREAM_MARGIN
+  const bottom = workArea.y + workArea.height - height - TERMINAL_STREAM_MARGIN
+  const left = workArea.x + TERMINAL_STREAM_MARGIN
+  const top = workArea.y + TERMINAL_STREAM_MARGIN
+  const key = String(placement || '').toLowerCase()
+
+  if (key === 'right') return fitBoundsToWorkArea({ x: right, y: cy, width, height }, workArea)
+  if (key === 'left') return fitBoundsToWorkArea({ x: left, y: cy, width, height }, workArea)
+  if (key === 'bottom') return fitBoundsToWorkArea({ x: cx, y: bottom, width, height }, workArea)
+  if (key === 'top') return fitBoundsToWorkArea({ x: cx, y: top, width, height }, workArea)
+  if (key === 'top-left') return fitBoundsToWorkArea({ x: left, y: top, width, height }, workArea)
+  if (key === 'top-right') return fitBoundsToWorkArea({ x: right, y: top, width, height }, workArea)
+  if (key === 'bottom-left') return fitBoundsToWorkArea({ x: left, y: bottom, width, height }, workArea)
+  if (key === 'bottom-right') return fitBoundsToWorkArea({ x: right, y: bottom, width, height }, workArea)
+  if (key === 'center') return fitBoundsToWorkArea({ x: cx, y: cy, width, height }, workArea)
+  return null
+}
+
+function scoreTerminalCandidate(bounds, blockers, mainBounds) {
+  const totalOverlap = blockers.reduce((sum, blocker) => sum + rectOverlapArea(bounds, blocker), 0)
+  const mainOverlap = rectOverlapArea(bounds, mainBounds)
+  const area = Math.max(1, bounds.width * bounds.height)
+  return (mainOverlap * 20) + (totalOverlap * 4) - (area / 1000)
+}
+
+function terminalFreeRegionCandidates(workArea, desired, mainBounds) {
+  if (!mainBounds) return []
+  const gap = TERMINAL_STREAM_GAP
+  const regions = [
+    {
+      region: {
+        x: rectRight(mainBounds) + gap,
+        y: workArea.y,
+        width: rectRight(workArea) - rectRight(mainBounds) - gap,
+        height: workArea.height,
+      },
+      anchor: { x: rectRight(mainBounds) + gap, y: mainBounds.y },
+    },
+    {
+      region: {
+        x: workArea.x,
+        y: workArea.y,
+        width: mainBounds.x - workArea.x - gap,
+        height: workArea.height,
+      },
+      anchor: { x: mainBounds.x - gap - desired.width, y: mainBounds.y },
+    },
+    {
+      region: {
+        x: workArea.x,
+        y: rectBottom(mainBounds) + gap,
+        width: workArea.width,
+        height: rectBottom(workArea) - rectBottom(mainBounds) - gap,
+      },
+      anchor: { x: mainBounds.x, y: rectBottom(mainBounds) + gap },
+    },
+    {
+      region: {
+        x: workArea.x,
+        y: workArea.y,
+        width: workArea.width,
+        height: mainBounds.y - workArea.y - gap,
+      },
+      anchor: { x: mainBounds.x, y: mainBounds.y - gap - desired.height },
+    },
+  ]
+
+  return regions
+    .map(item => candidateFromRegion(item.region, desired, item.anchor))
+    .filter(Boolean)
+}
+
+function maybeArrangeMainAndTerminalSidecar(workArea, desired) {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.isVisible() || mainWindow.isMinimized()) return null
+  if (mainWindow.isFullScreen() || mainWindow.isMaximized()) return null
+  const availableWidth = workArea.width - (TERMINAL_STREAM_MARGIN * 2) - TERMINAL_STREAM_GAP
+  if (availableWidth < MAIN_WINDOW_SIDECAR_MIN_WIDTH + TERMINAL_STREAM_MIN_WIDTH) return null
+
+  const currentMain = mainWindow.getBounds()
+  let mainWidth = Math.min(currentMain.width, availableWidth - TERMINAL_STREAM_MIN_WIDTH)
+  mainWidth = Math.max(MAIN_WINDOW_SIDECAR_MIN_WIDTH, mainWidth)
+  let terminalWidth = Math.min(desired.width, availableWidth - mainWidth)
+  if (terminalWidth < TERMINAL_STREAM_MIN_WIDTH) {
+    terminalWidth = TERMINAL_STREAM_MIN_WIDTH
+    mainWidth = availableWidth - terminalWidth
+  }
+  if (mainWidth < MAIN_WINDOW_SIDECAR_MIN_WIDTH) return null
+
+  const maxHeight = workArea.height - (TERMINAL_STREAM_MARGIN * 2)
+  const mainHeight = clampNumber(currentMain.height, Math.min(MAIN_WINDOW_SIDECAR_MIN_HEIGHT, maxHeight), maxHeight)
+  const terminalHeight = clampNumber(desired.height, Math.min(TERMINAL_STREAM_MIN_HEIGHT, maxHeight), maxHeight)
+  const mainX = workArea.x + TERMINAL_STREAM_MARGIN
+  const mainY = clampNumber(currentMain.y, workArea.y + TERMINAL_STREAM_MARGIN, workArea.y + workArea.height - TERMINAL_STREAM_MARGIN - mainHeight)
+  const terminalX = mainX + mainWidth + TERMINAL_STREAM_GAP
+  const terminalY = clampNumber(mainY, workArea.y + TERMINAL_STREAM_MARGIN, workArea.y + workArea.height - TERMINAL_STREAM_MARGIN - terminalHeight)
+  const nextMain = roundBounds({ x: mainX, y: mainY, width: mainWidth, height: mainHeight })
+  const terminalBounds = roundBounds({ x: terminalX, y: terminalY, width: terminalWidth, height: terminalHeight })
+
+  const changed = ['x', 'y', 'width', 'height'].some(key => Math.abs(nextMain[key] - currentMain[key]) > 2)
+  if (changed) {
+    try { mainWindow.setBounds(nextMain, false) } catch {}
+  }
+  return terminalBounds
+}
+
+function chooseTerminalStreamBounds(payload = {}, excludeWindow = null) {
+  const display = getDisplayForTerminalWindow(payload)
+  const workArea = display.workArea
+  const requested = parseTerminalRequestedBounds(payload)
+  const desired = {
+    width: clampNumber(
+      Math.round(requested?.width || TERMINAL_STREAM_DEFAULT_WIDTH),
+      Math.min(TERMINAL_STREAM_MIN_WIDTH, workArea.width),
+      workArea.width
+    ),
+    height: clampNumber(
+      Math.round(requested?.height || TERMINAL_STREAM_DEFAULT_HEIGHT),
+      Math.min(TERMINAL_STREAM_MIN_HEIGHT, workArea.height),
+      workArea.height
+    ),
+  }
+
+  if (Number.isFinite(requested?.x) || Number.isFinite(requested?.y)) {
+    return fitBoundsToWorkArea({
+      x: requested.x,
+      y: requested.y,
+      width: desired.width,
+      height: desired.height,
+    }, workArea)
+  }
+
+  const placement = String(payload.placement || 'auto').toLowerCase()
+  const placed = placement !== 'auto'
+    ? candidateForPlacement(placement, workArea, desired)
+    : null
+  if (placed) return placed
+
+  const { screen } = require('electron')
+  const mainBounds = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized()
+    && screen.getDisplayMatching(mainWindow.getBounds()).id === display.id
+    ? mainWindow.getBounds()
+    : null
+  const blockers = visibleWindowBlockers(display, excludeWindow)
+
+  const freeCandidates = terminalFreeRegionCandidates(workArea, desired, mainBounds)
+  const zeroOverlap = freeCandidates
+    .filter(bounds => blockers.every(blocker => rectOverlapArea(bounds, blocker) === 0))
+    .sort((a, b) => scoreTerminalCandidate(a, blockers, mainBounds) - scoreTerminalCandidate(b, blockers, mainBounds))
+  if (zeroOverlap[0]) return zeroOverlap[0]
+
+  const sidecar = maybeArrangeMainAndTerminalSidecar(workArea, desired)
+  if (sidecar) return sidecar
+
+  const fallbackCandidates = [
+    ...freeCandidates,
+    candidateForPlacement('top-right', workArea, desired),
+    candidateForPlacement('bottom-right', workArea, desired),
+    candidateForPlacement('bottom-left', workArea, desired),
+    candidateForPlacement('top-left', workArea, desired),
+    candidateForPlacement('right', workArea, desired),
+    candidateForPlacement('center', workArea, desired),
+  ].filter(Boolean)
+
+  fallbackCandidates.sort((a, b) => scoreTerminalCandidate(a, blockers, mainBounds) - scoreTerminalCandidate(b, blockers, mainBounds))
+  return fallbackCandidates[0] || fitBoundsToWorkArea({ width: desired.width, height: desired.height }, workArea)
+}
+
+function showTerminalStreamWindow(win, focusWindow = true) {
+  if (!win || win.isDestroyed()) return
+  if (focusWindow === false && typeof win.showInactive === 'function') {
+    win.showInactive()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
+function normalizeTerminalStreamId(value = 'default') {
+  return String(value || 'default').replace(/[^a-zA-Z0-9_.:-]+/g, '_').slice(0, 80) || 'default'
+}
+
+function createTerminalStreamWindow(payload = {}) {
+  const { title = 'Bailongma Terminal Stream', stream_id = 'default' } = payload
   const cleanTitle = String(title || 'Bailongma Terminal Stream').slice(0, 120)
-  const streamId = String(stream_id || 'default').replace(/[^a-zA-Z0-9_.:-]+/g, '_').slice(0, 80) || 'default'
+  const streamId = normalizeTerminalStreamId(stream_id)
   const url = `http://127.0.0.1:${backendPort}/terminal-stream?stream_id=${encodeURIComponent(streamId)}`
+  const focusWindow = payload.focus !== false
 
   if (terminalStreamWindow && !terminalStreamWindow.isDestroyed()) {
+    const streamChanged = terminalStreamWindowStreamId !== streamId
     terminalStreamWindow.setTitle(cleanTitle)
-    if (terminalStreamWindowStreamId !== streamId) {
+    if (streamChanged || payload.relayout === true) {
+      terminalStreamWindow.setBounds(chooseTerminalStreamBounds(payload, terminalStreamWindow), false)
+    }
+    if (streamChanged) {
       terminalStreamWindowStreamId = streamId
       terminalStreamWindow.loadURL(url)
     }
-    if (terminalStreamWindow.isMinimized()) terminalStreamWindow.restore()
-    terminalStreamWindow.show()
-    terminalStreamWindow.focus()
+    showTerminalStreamWindow(terminalStreamWindow, focusWindow)
     return
   }
 
+  const initialBounds = chooseTerminalStreamBounds(payload, null)
   terminalStreamWindow = new BrowserWindow({
-    width: 920,
-    height: 540,
-    minWidth: 520,
-    minHeight: 300,
+    ...initialBounds,
+    minWidth: TERMINAL_STREAM_MIN_WIDTH,
+    minHeight: TERMINAL_STREAM_MIN_HEIGHT,
+    show: false,
     backgroundColor: '#050505',
     title: cleanTitle,
     icon: getAppIconPath(),
@@ -481,6 +816,7 @@ function createTerminalStreamWindow({ title = 'Bailongma Terminal Stream', strea
 
   terminalStreamWindowStreamId = streamId
   terminalStreamWindow.loadURL(url)
+  showTerminalStreamWindow(terminalStreamWindow, focusWindow)
   terminalStreamWindow.on('closed', () => {
     terminalStreamWindow = null
     terminalStreamWindowStreamId = null
@@ -491,8 +827,10 @@ terminalStreamBridge.on('open', (payload = {}) => {
   createTerminalStreamWindow(payload)
 })
 
-terminalStreamBridge.on('close', () => {
+terminalStreamBridge.on('close', (payload = {}) => {
   if (terminalStreamWindow && !terminalStreamWindow.isDestroyed()) {
+    const streamId = payload?.stream_id ? normalizeTerminalStreamId(payload.stream_id) : null
+    if (streamId && terminalStreamWindowStreamId && streamId !== terminalStreamWindowStreamId) return
     terminalStreamWindow.close()
     terminalStreamWindow = null
     terminalStreamWindowStreamId = null

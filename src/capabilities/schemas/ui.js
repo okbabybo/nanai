@@ -126,14 +126,14 @@ export const uiSchemas = {
     type: 'function',
     function: {
       name: 'terminal_stream',
-      description: 'Open and write to a separate terminal-style progress window (black background, monospace text). Use it for visible work logs, especially before/during file writing or artifact generation, so the user can see progress without waiting in Brain UI. This is not the final user reply; write short factual progress lines.',
+      description: 'Open and write to a separate terminal-style progress window (black background, monospace text, with optional Markdown rendering). Use it for visible work logs, especially before/during file writing or artifact generation, so the user can see progress without waiting in Brain UI. After a file write, decide whether this window is still useful: keep it open for articles/reports/essays/notes/plans/Markdown prose that the user should review here; close it for code, config, JSON/data, temporary files, logs, build artifacts, or any file whose content does not need user review in this window after verification. If you open the same generated file in a local editor/viewer/browser, close this preview because that app becomes the review surface.',
       parameters: {
         type: 'object',
         properties: {
           action: {
             type: 'string',
             enum: ['open', 'write', 'clear', 'close', 'status'],
-            description: 'open shows the terminal window; write appends text; clear clears the stream; close closes the window; status checks current stream state.'
+            description: 'open shows the terminal window; write appends text; clear clears the stream; close closes the window; status checks current stream state and returns screen/window layout when available.'
           },
           text: {
             type: 'string',
@@ -146,6 +146,46 @@ export const uiSchemas = {
           title: {
             type: 'string',
             description: 'Optional terminal window title, e.g. "Writing project files".'
+          },
+          format: {
+            type: 'string',
+            enum: ['plain', 'markdown', 'code'],
+            description: 'Optional render format. Use markdown for article/report/essay/note previews so the terminal window renders headings, lists, emphasis, and code fences.'
+          },
+          artifact_kind: {
+            type: 'string',
+            description: 'Optional artifact kind such as article, report, note, code, log, or file.'
+          },
+          artifact_path: {
+            type: 'string',
+            description: 'Optional path of the file/artifact being previewed.'
+          },
+          hold_open: {
+            type: 'boolean',
+            description: 'Set true only when the preview itself should remain as the user review surface, such as article/report/essay/note/plan/Markdown prose. Use false for code, config, JSON/data, logs, temporary files, or files opened in another local app.'
+          },
+          force: {
+            type: 'boolean',
+            description: 'For action=close only. Use true when the user explicitly asked to close a held article/document preview, or when the same file has been opened in a local editor/viewer/browser.'
+          },
+          placement: {
+            type: 'string',
+            enum: ['auto', 'right', 'left', 'top', 'bottom', 'top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'],
+            description: 'Optional window placement. Default auto avoids the main Bailongma window when possible; call status first if you need exact screen/window bounds.'
+          },
+          bounds: {
+            type: 'object',
+            properties: {
+              x: { type: 'number', description: 'Screen x coordinate in physical pixels.' },
+              y: { type: 'number', description: 'Screen y coordinate in physical pixels.' },
+              width: { type: 'number', description: 'Window width in pixels.' },
+              height: { type: 'number', description: 'Window height in pixels.' },
+            },
+            description: 'Optional explicit window bounds. If provided, the app clamps the window into the active display work area.'
+          },
+          focus: {
+            type: 'boolean',
+            description: 'Whether to focus the terminal window after opening. Defaults to true for explicit tool use; write-file previews use false so the main window keeps focus.'
           },
           newline: {
             type: 'boolean',

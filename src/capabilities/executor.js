@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import fs from 'fs'
 import path from 'path'
+import { fileURLToPath } from 'url'
 import { nowTimestamp } from '../time.js'
 import { normalizeConversationPartyId, upsertPrefetchTask, removePrefetchTask, listPrefetchTasks, insertConversation, setConfig as dbSetConfig, markConversationOpenQuestion, findRecentJarvisDuplicate, getRecentActionLogs } from '../db.js'
 import { emitEvent, setStickyEvent } from '../events.js'
@@ -21,6 +22,7 @@ import { TOOL_GROUPS } from '../memory/tool-router.js'
 import { findCapabilitiesByQuery } from './capability-registry.js'
 import { throwIfAborted } from './abort-utils.js'
 import { execUISet } from './tools/scene.js'
+import { SANDBOX_ROOT } from './sandbox.js'
 import { sceneStore } from '../scene/scene-store.js'
 import { sceneClientCount } from '../scene/scene-server.js'
 import { evaluateToolPolicy } from './tool-policy.js'
@@ -179,6 +181,158 @@ function inferFileWritePreviewOutcome(result = '') {
   return { verified: true }
 }
 
+function getDesktopWindowLayoutSnapshot() {
+  try {
+    const reader = globalThis?.getBailongmaWindowLayoutSnapshot
+    return typeof reader === 'function' ? reader() : null
+  } catch {
+    return null
+  }
+}
+
+function normalizeOptionalBoolean(value) {
+  if (value === undefined) return undefined
+  if (value === true || value === false) return value
+  const text = String(value).trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(text)) return true
+  if (['false', '0', 'no', 'off', ''].includes(text)) return false
+  return !!value
+}
+
+const LOCAL_FILE_OPEN_COMMAND_RE = /\b(Start-Process|Invoke-Item|ii|explorer(?:\.exe)?|notepad(?:\.exe)?|wordpad(?:\.exe)?|typora(?:\.exe)?|code(?:\.cmd|\.exe)?|subl(?:ime_text)?(?:\.exe)?|notepad\+\+(?:\.exe)?)\b|(?:^|[;&|])\s*start(?:\s|$)|\bcmd(?:\.exe)?\s+\/c\s+start(?:\s|$)/i
+const LOCAL_OPEN_FILE_EXT_SOURCE = 'md|markdown|mdx|txt|rtf|html?|css|js|jsx|ts|tsx|json|ya?ml|xml|csv|log|py|sh|bash|ps1|bat|cmd|sql|rst|adoc|docx?'
+const LOCAL_OPEN_FILE_EXT_PART = `(?:${LOCAL_OPEN_FILE_EXT_SOURCE})`
+const LOCAL_OPEN_FILE_EXT_RE = new RegExp(`\\.(${LOCAL_OPEN_FILE_EXT_SOURCE})$`, 'i')
+
+function normalizeComparablePath(filePath = '') {
+  const resolved = path.normalize(path.resolve(String(filePath || '')))
+  return process.platform === 'win32' ? resolved.toLowerCase() : resolved
+}
+
+function addComparablePath(out, filePath = '') {
+  if (!filePath) return
+  out.add(normalizeComparablePath(filePath))
+  try {
+    if (fs.existsSync(filePath)) out.add(normalizeComparablePath(fs.realpathSync.native(filePath)))
+  } catch {}
+}
+
+function resolveShellCwd(args = {}) {
+  const raw = String(args?.cwd || '').trim()
+  if (!raw) return SANDBOX_ROOT
+  return path.isAbsolute(raw) ? path.resolve(raw) : path.resolve(SANDBOX_ROOT, raw)
+}
+
+function cleanOpenPathToken(value = '') {
+  let text = String(value || '').trim()
+  text = text.replace(/^[`"'([{]+/, '').replace(/[`"',;)\]}]+$/, '')
+  if (!text) return ''
+  if (/^(https?|mailto):\/\//i.test(text)) return ''
+  if (/^file:\/\//i.test(text)) {
+    try {
+      text = fileURLToPath(text)
+    } catch {
+      return ''
+    }
+  }
+  return LOCAL_OPEN_FILE_EXT_RE.test(text) ? text : ''
+}
+
+function resolveOpenFileCandidate(rawPath = '', cwd = SANDBOX_ROOT) {
+  const cleaned = cleanOpenPathToken(rawPath)
+  if (!cleaned) return ''
+  return path.isAbsolute(cleaned) ? path.resolve(cleaned) : path.resolve(cwd, cleaned)
+}
+
+function extractLocalOpenFileCandidates(command = '', cwd = SANDBOX_ROOT) {
+  const text = String(command || '')
+  if (!LOCAL_FILE_OPEN_COMMAND_RE.test(text)) return []
+
+  const candidates = new Set()
+  const add = (value) => {
+    const resolved = resolveOpenFileCandidate(value, cwd)
+    if (resolved) candidates.add(normalizeComparablePath(resolved))
+  }
+
+  const quoted = new RegExp(`["']([^"']+\\.${LOCAL_OPEN_FILE_EXT_PART})["']`, 'ig')
+  let match
+  while ((match = quoted.exec(text)) !== null) add(match[1])
+
+  const bare = new RegExp(`(^|[\\s=])([^\\s"'|;&<>]+\\.${LOCAL_OPEN_FILE_EXT_PART})(?=$|[\\s)'";|&<>])`, 'ig')
+  while ((match = bare.exec(text)) !== null) add(match[2])
+
+  return Array.from(candidates)
+}
+
+function currentWriteFileArtifactPaths(snapshot) {
+  const out = new Set()
+  const artifactPath = String(snapshot?.artifact_path || '').trim()
+  if (!artifactPath) return out
+  if (path.isAbsolute(artifactPath)) {
+    addComparablePath(out, artifactPath)
+  } else {
+    addComparablePath(out, path.resolve(SANDBOX_ROOT, artifactPath))
+  }
+  return out
+}
+
+function commandResultLooksSuccessful(result = '') {
+  try {
+    const obj = JSON.parse(String(result || '{}'))
+    if (obj.ok === false) return false
+    if (obj.exit_code !== undefined && obj.exit_code !== null) return Number(obj.exit_code) === 0
+    return true
+  } catch {
+    return true
+  }
+}
+
+function maybeCloseWriteFilePreviewAfterLocalOpen(args = {}, result = '') {
+  if (!commandResultLooksSuccessful(result)) return null
+  const command = String(args.command || args.cmd || '')
+  const candidates = extractLocalOpenFileCandidates(command, resolveShellCwd(args))
+  if (candidates.length === 0) return null
+
+  const snapshot = getTerminalStreamSnapshot('write_file')
+  if (!snapshot || snapshot.closed || !snapshot.artifact_path) return null
+
+  const artifactPaths = currentWriteFileArtifactPaths(snapshot)
+  const openedPath = candidates.find(candidate => artifactPaths.has(candidate))
+  if (!openedPath) return null
+
+  try {
+    globalThis?.terminalStreamBridge?.emit?.('close', {
+      stream_id: 'write_file',
+      source: 'local_file_open',
+      artifact_path: snapshot.artifact_path,
+    })
+  } catch {}
+  recordTerminalStreamEvent({ action: 'close', stream_id: 'write_file', force: true })
+  return {
+    stream_id: 'write_file',
+    reason: 'local_file_open',
+    artifact_path: snapshot.artifact_path,
+    opened_path: openedPath,
+  }
+}
+
+function addTerminalCloseInfo(result = '', closeInfo = null) {
+  if (!closeInfo) return result
+  try {
+    const obj = JSON.parse(String(result || '{}'))
+    obj.terminal_stream_closed = closeInfo
+    return toolJson(obj)
+  } catch {
+    return result
+  }
+}
+
+async function execShellToolAndMaybeCloseWritePreview(runner, args, context) {
+  const result = await runner(args, context)
+  const closeInfo = maybeCloseWriteFilePreviewAfterLocalOpen(args, result)
+  return addTerminalCloseInfo(result, closeInfo)
+}
+
 async function executeToolUnchecked(name, args, context = {}) {
   try {
     throwIfAborted(context.signal)
@@ -200,13 +354,13 @@ async function executeToolUnchecked(name, args, context = {}) {
       case 'install_software':
         return await execInstallSoftware(args, context)
       case 'exec_command':
-        return await execCommand(args, context)
+        return await execShellToolAndMaybeCloseWritePreview(execCommand, args, context)
       case 'exec_quick_command':
-        return await execQuickCommand(args, context)
+        return await execShellToolAndMaybeCloseWritePreview(execQuickCommand, args, context)
       case 'exec_task_command':
-        return await execTaskCommand(args, context)
+        return await execShellToolAndMaybeCloseWritePreview(execTaskCommand, args, context)
       case 'exec_background_command':
-        return await execBackgroundCommand(args, context)
+        return await execShellToolAndMaybeCloseWritePreview(execBackgroundCommand, args, context)
       case 'download_file':
         return await execDownloadFile(args, context)
       case 'kill_process':
@@ -1011,6 +1165,14 @@ function execTerminalStream({
   title = 'Bailongma Terminal Stream',
   newline = true,
   level = 'info',
+  format = '',
+  artifact_kind = '',
+  artifact_path = '',
+  hold_open = undefined,
+  force = false,
+  placement = 'auto',
+  bounds = null,
+  focus = true,
 } = {}) {
   const normalizedAction = String(action || 'write').trim().toLowerCase()
   if (!['open', 'write', 'clear', 'close', 'status'].includes(normalizedAction)) {
@@ -1020,6 +1182,8 @@ function execTerminalStream({
   const bridge = global.terminalStreamBridge
   const streamId = String(stream_id || 'default').trim() || 'default'
   const cleanTitle = String(title || 'Bailongma Terminal Stream').trim() || 'Bailongma Terminal Stream'
+  const normalizedHoldOpen = normalizeOptionalBoolean(hold_open)
+  const forceClose = normalizeOptionalBoolean(force) === true
 
   if (normalizedAction === 'status') {
     const snapshot = getTerminalStreamSnapshot(streamId)
@@ -1029,14 +1193,35 @@ function execTerminalStream({
       action: 'status',
       stream_id: snapshot.stream_id,
       title: snapshot.title,
+      format: snapshot.format,
+      artifact_kind: snapshot.artifact_kind,
+      artifact_path: snapshot.artifact_path,
+      hold_open: !!snapshot.hold_open,
       closed: snapshot.closed,
       chunks: snapshot.chunks.length,
       window_available: !!bridge,
+      layout: getDesktopWindowLayoutSnapshot(),
     })
   }
 
+  if (normalizedAction === 'close') {
+    const snapshot = getTerminalStreamSnapshot(streamId)
+    if (snapshot.hold_open && !forceClose) {
+      return toolJson({
+        ok: false,
+        tool: 'terminal_stream',
+        action: 'close',
+        stream_id: snapshot.stream_id,
+        title: snapshot.title,
+        skipped: 'held_open_artifact',
+        reason: 'This stream is holding an article/document preview for user review. Only close it when the user explicitly asks, with force=true.',
+        window_available: !!bridge,
+      })
+    }
+  }
+
   if (bridge && ['open', 'write', 'clear'].includes(normalizedAction)) {
-    bridge.emit('open', { title: cleanTitle, stream_id: streamId })
+    bridge.emit('open', { title: cleanTitle, stream_id: streamId, placement, bounds, focus })
   } else if (bridge && normalizedAction === 'close') {
     bridge.emit('close', { stream_id: streamId })
   }
@@ -1048,6 +1233,11 @@ function execTerminalStream({
     text,
     newline,
     level,
+    format,
+    artifact_kind,
+    artifact_path,
+    hold_open: normalizedHoldOpen,
+    force: forceClose,
   })
 
   return toolJson({
