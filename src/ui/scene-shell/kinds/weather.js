@@ -28,12 +28,13 @@ function forecastRow(f) {
 export const weather = {
   render(data = {}) {
     const fc = Array.isArray(data.forecast) ? data.forecast : []
-    return el('div', { class: 'k-weather' }, [
+    const variant = data.variant === 'week' || fc.length > 3 ? 'week' : 'compact'
+    return el('div', { class: `k-weather is-${variant}` }, [
       el('div', { class: 'w-head' }, [
         el('span', { class: 'w-ico', text: glyphFor(data.condition) }),
         el('div', { class: 'w-now' }, [
           el('div', { class: 'w-city', text: data.city || '' }),
-          el('div', { class: 'w-cond', text: data.condition || '' }),
+          el('div', { class: 'w-cond', text: variant === 'week' ? `${data.condition || ''} · 7天预报` : (data.condition || '') }),
         ]),
         el('div', { class: 'w-temp', text: data.temp == null ? '' : `${data.temp}°` }),
       ]),
@@ -48,13 +49,20 @@ export const weather = {
 
   // morph:温度 / 天气原地翻动;预报列表变化则交叉淡化重建。
   morph(el_, prev = {}, next = {}) {
+    const nextFc = Array.isArray(next.forecast) ? next.forecast : []
+    const variant = next.variant === 'week' || nextFc.length > 3 ? 'week' : 'compact'
+    const body = el_.querySelector('.k-weather')
+    if (body) {
+      body.classList.toggle('is-week', variant === 'week')
+      body.classList.toggle('is-compact', variant !== 'week')
+    }
+
     setText(el_.querySelector('.w-city'), next.city || '')
-    setText(el_.querySelector('.w-cond'), next.condition || '')
+    setText(el_.querySelector('.w-cond'), variant === 'week' ? `${next.condition || ''} · 7天预报` : (next.condition || ''))
     setText(el_.querySelector('.w-temp'), next.temp == null ? '' : `${next.temp}°`)
     setText(el_.querySelector('.w-ico'), glyphFor(next.condition))
 
     const prevFc = Array.isArray(prev.forecast) ? prev.forecast : []
-    const nextFc = Array.isArray(next.forecast) ? next.forecast : []
     if (JSON.stringify(prevFc) === JSON.stringify(nextFc)) return
 
     let list = el_.querySelector('.w-fclist')

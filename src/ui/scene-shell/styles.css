@@ -206,6 +206,9 @@
   transform-origin: top right;
   z-index: 6;
 }
+#stage > .surface[data-kind="weather"]:has(.k-weather.is-week) {
+  max-width: min(460px, calc(100vw - 32px));
+}
 #stage > .surface[data-kind="weather"][data-intent="ambient"] {
   opacity: 1;
   filter: none;
@@ -244,6 +247,21 @@
 .w-fc-day { font-size: 13px; color: var(--text-dim); }
 .w-fc-ico { font-size: 22px; }
 .w-fc-temp { font-size: 13px; }
+.k-weather.is-week .w-fclist {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(42px, 1fr));
+  gap: 8px;
+}
+.k-weather.is-week .w-fc {
+  min-width: 0;
+  gap: 5px;
+}
+.k-weather.is-week .w-fc-day,
+.k-weather.is-week .w-fc-temp {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.k-weather.is-week .w-fc-ico { font-size: 20px; }
 
 /* ── kind: progress ─────────────────────────────────────────────────── */
 .k-progress { min-width: 280px; }

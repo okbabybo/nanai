@@ -857,6 +857,7 @@ function normalizeWeatherSurfaceData(cardProps = {}) {
     }))
     : []
   return {
+    variant: cardProps.variant || 'compact',
     city: cardProps.city || '当前位置',
     temp: cardProps.temp,
     condition: cardProps.condition || '',

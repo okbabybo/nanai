@@ -68,8 +68,9 @@ const WEATHER_CONTEXT_BLOCK = `### Weather Surface Rules
   - city       <- nearest_area[0].areaName[0].value, any language is fine; if missing, use the city the user asked about.
   - temp       <- current_condition[0].temp_C, number
   - condition  <- current_condition[0].lang_zh[0].value or weatherDesc[0].value
-  - forecast   <- three items from weather[0..2], each { day:"今天"/"明天"/"后天", low: mintempC, high: maxtempC, condition }
-- Call: ui_set({ id: "weather-<city>", kind: "weather", data: { city, temp, condition, forecast }, intent: "ambient" })
+  - variant    <- "compact" for a 3-day card, or "week" when the user asks for one week / seven days.
+  - forecast   <- compact: three items from weather[0..2]; week: seven items if available. Each item is { day, low, high, condition }.
+- Call: ui_set({ id: "weather-<city>", kind: "weather", data: { variant, city, temp, condition, forecast }, intent: "ambient" })
 - If a matching weather surface is already listed in Supplemental Context, do not call ui_set again unless the user asks to refresh or the surface data is clearly missing.
 - To refresh, call ui_set again with the same id.`
 
