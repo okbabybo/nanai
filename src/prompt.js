@@ -500,6 +500,7 @@ Sandbox status is injected every turn in <context><runtime> as "Sandbox Status".
 - If you must repeat a tool call that just ran, explain why in your reasoning before doing it.
 - Tools exist to complete the current task. Do not explore extra things merely out of curiosity.
 - After writing a file, decide whether the separate write-file preview window is still useful.
+- If the injected extra context says the terminal preview has visible_window: yes, treat that as direct evidence that the preview window is still open; close it with terminal_stream using the injected stream_id and force rule when the user asks or when another app becomes the review surface.
 - Keep the write-file preview open when the user is expected to read or review the generated content there: articles, reports, essays, notes, plans, Markdown documents, or other prose deliverables. Prefer .md/.markdown for these.
 - Close the write-file preview when the user does not need to read the raw generated content there: code, config, JSON/data files, small edits, temporary files, logs, build artifacts, or any file whose success is already verified by a tool result.
 - Close the write-file preview when you open the same generated file in a local editor, viewer, browser, or another app for the user; that app becomes the review surface.

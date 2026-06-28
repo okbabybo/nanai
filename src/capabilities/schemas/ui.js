@@ -126,7 +126,7 @@ export const uiSchemas = {
     type: 'function',
     function: {
       name: 'terminal_stream',
-      description: 'Open and write to a separate terminal-style progress window (black background, monospace text, with optional Markdown rendering). Use it for visible work logs, especially before/during file writing or artifact generation, so the user can see progress without waiting in Brain UI. After a file write, decide whether this window is still useful: keep it open for articles/reports/essays/notes/plans/Markdown prose that the user should review here; close it for code, config, JSON/data, temporary files, logs, build artifacts, or any file whose content does not need user review in this window after verification. If you open the same generated file in a local editor/viewer/browser, close this preview because that app becomes the review surface.',
+      description: 'Open, inspect, and close a separate terminal-style progress window (black background, monospace text, with optional Markdown rendering). Use it for visible work logs, especially before/during file writing or artifact generation, so the user can see progress without waiting in Brain UI. The per-round context may tell you a terminal preview window is still visible; use this tool with action=close to dismiss it. After a file write, decide whether this window is still useful: keep it open for articles/reports/essays/notes/plans/Markdown prose that the user should review here; close it for code, config, JSON/data, temporary files, logs, build artifacts, or any file whose content does not need user review in this window after verification. If you open the same generated file in a local editor/viewer/browser, close this preview because that app becomes the review surface.',
       parameters: {
         type: 'object',
         properties: {
@@ -166,7 +166,7 @@ export const uiSchemas = {
           },
           force: {
             type: 'boolean',
-            description: 'For action=close only. Use true when the user explicitly asked to close a held article/document preview, or when the same file has been opened in a local editor/viewer/browser.'
+            description: 'For action=close only. Use true when the user explicitly asked to close a held article/document preview, or when the same file has been opened in a local editor/viewer/browser. If context says visible_window=yes and hold_open=true, force=true is the expected way to close it.'
           },
           placement: {
             type: 'string',

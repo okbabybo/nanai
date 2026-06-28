@@ -4,6 +4,7 @@ import { runRuntimeInjector } from './context/runtime-injector.js'
 import { getConfig, getKnownEntities, getOrInitBirthTime } from './db.js'
 import { getSecurity } from './config.js'
 import { formatTick, describeExistence } from './time.js'
+import { formatTerminalStreamContext } from './terminal-stream.js'
 
 function cloneStateSnapshot(stateSnapshot = {}) {
   return {
@@ -41,6 +42,8 @@ export async function buildHeartbeatSystemPromptPreview({
   const agentName = getConfig('agent_name') || '小白龙'
   const entities = getKnownEntities()
   const birthTime = getOrInitBirthTime()
+  const terminalStreamContext = formatTerminalStreamContext()
+  const extraContext = [runtimeInjection.contextText, terminalStreamContext].filter(Boolean).join('\n\n')
 
   const systemPromptStable = buildSystemPrompt({
     agentName,
@@ -61,7 +64,7 @@ export async function buildHeartbeatSystemPromptPreview({
     hasActiveTask: !!workingState.task,
     task: workingState.task || null,
     taskKnowledge: taskKnowledgeText,
-    extraContext: runtimeInjection.contextText,
+    extraContext,
     // Runtime info 也注入预览，让 UI 看到完整 context
     existenceDesc: describeExistence(birthTime),
     security: getSecurity(),
@@ -101,6 +104,7 @@ export async function buildHeartbeatSystemPromptPreview({
       extraContextText: runtimeInjection.taskExtraContextText,
       keywordContextText: runtimeInjection.keywordContextText,
       runtimeContextText: runtimeInjection.contextText,
+      terminalStreamContextText: terminalStreamContext,
     },
   }
 }

@@ -1,5 +1,5 @@
 import assert from 'assert'
-import { getTerminalStreamSnapshot, recordTerminalStreamEvent } from './terminal-stream.js'
+import { formatTerminalStreamContext, getTerminalStreamSnapshot, recordTerminalStreamEvent } from './terminal-stream.js'
 import {
   extractFileWriteArgs,
   extractPartialJsonStringValue,
@@ -148,6 +148,47 @@ globalThis.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS = 0
   assert.strictEqual(snapshot.artifact_kind, 'article')
   assert.strictEqual(snapshot.artifact_path, 'weekly-report.txt')
   assert.strictEqual(snapshot.hold_open, true)
+}
+
+{
+  recordTerminalStreamEvent({
+    action: 'clear',
+    stream_id: 'write_file',
+    title: 'Writing diary.md',
+    format: 'markdown',
+    artifact_kind: 'article',
+    artifact_path: 'diary.md',
+    hold_open: true,
+  })
+  recordTerminalStreamEvent({ action: 'write', stream_id: 'write_file', text: '# Diary\n\nBody' })
+  const previousReader = globalThis.getBailongmaWindowLayoutSnapshot
+  globalThis.getBailongmaWindowLayoutSnapshot = () => ({
+    displays: [],
+    windows: [
+      {
+        kind: 'terminal_stream',
+        terminal_stream_id: 'write_file',
+        title: 'Writing diary.md',
+        visible: true,
+        focused: false,
+        minimized: false,
+        bounds: { x: 1300, y: 60, width: 560, height: 830 },
+      },
+    ],
+  })
+  const context = formatTerminalStreamContext()
+  assert.match(context, /visible_window: yes/)
+  assert.match(context, /window_stream_id: write_file/)
+  assert.match(context, /artifact_path=diary\.md/)
+  assert.match(context, /force=true/)
+  assert.match(context, /Do not tell the user no preview window exists/)
+  globalThis.getBailongmaWindowLayoutSnapshot = () => ({ displays: [], windows: [] })
+  assert.match(formatTerminalStreamContext(), /visible_window: no/)
+  if (previousReader) {
+    globalThis.getBailongmaWindowLayoutSnapshot = previousReader
+  } else {
+    delete globalThis.getBailongmaWindowLayoutSnapshot
+  }
 }
 
 {

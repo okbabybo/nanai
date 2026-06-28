@@ -61,8 +61,7 @@ function trimSession(session) {
   }
 }
 
-export function getTerminalStreamSnapshot(streamId = 'default') {
-  const session = getSession(streamId)
+function snapshotFromSession(session) {
   return {
     stream_id: session.stream_id,
     title: session.title,
@@ -74,6 +73,127 @@ export function getTerminalStreamSnapshot(streamId = 'default') {
     updated_at: session.updated_at,
     chunks: session.chunks.map(chunk => ({ ...chunk })),
   }
+}
+
+export function getTerminalStreamSnapshot(streamId = 'default') {
+  return snapshotFromSession(getSession(streamId))
+}
+
+function readDesktopLayoutSnapshot() {
+  try {
+    const reader = globalThis?.getBailongmaWindowLayoutSnapshot
+    return typeof reader === 'function' ? reader() : null
+  } catch {
+    return null
+  }
+}
+
+function compactTerminalTitle(value = '') {
+  return String(value || '').replace(/\s+/g, ' ').trim().slice(0, 120)
+}
+
+function compactBounds(bounds = null) {
+  if (!bounds || typeof bounds !== 'object') return ''
+  const x = Number(bounds.x)
+  const y = Number(bounds.y)
+  const width = Number(bounds.width)
+  const height = Number(bounds.height)
+  if (![x, y, width, height].every(Number.isFinite)) return ''
+  return `x=${Math.round(x)} y=${Math.round(y)} width=${Math.round(width)} height=${Math.round(height)}`
+}
+
+function isTerminalStreamWindowSnapshot(win) {
+  if (!win || typeof win !== 'object') return false
+  if (win.kind === 'terminal_stream' || win.role === 'terminal_stream') return true
+  if (win.terminal_stream_id) return true
+  const title = compactTerminalTitle(win.title)
+  return title === DEFAULT_TITLE || title.startsWith('Writing ')
+}
+
+function findTerminalStreamWindow(layout = null) {
+  if (isTerminalStreamWindowSnapshot(layout?.terminal_stream_window)) return layout.terminal_stream_window
+  const windows = Array.isArray(layout?.windows) ? layout.windows : []
+  return windows.find(isTerminalStreamWindowSnapshot) || null
+}
+
+function hasWindowInventory(layout = null) {
+  return !!layout && (Array.isArray(layout.windows) || layout.terminal_stream_window !== undefined)
+}
+
+function streamHasPromptValue(snapshot, windowStreamId = '') {
+  if (!snapshot) return false
+  if (windowStreamId && snapshot.stream_id === windowStreamId) return true
+  if (snapshot.closed) return false
+  return snapshot.chunks.length > 0
+    || snapshot.title !== DEFAULT_TITLE
+    || snapshot.format !== 'plain'
+    || !!snapshot.artifact_kind
+    || !!snapshot.artifact_path
+    || !!snapshot.hold_open
+}
+
+function relevantTerminalSnapshots(windowStreamId = '') {
+  const out = []
+  const seen = new Set()
+  for (const session of sessions.values()) {
+    const snapshot = snapshotFromSession(session)
+    if (!streamHasPromptValue(snapshot, windowStreamId)) continue
+    out.push(snapshot)
+    seen.add(snapshot.stream_id)
+  }
+  if (windowStreamId && !seen.has(windowStreamId) && sessions.has(windowStreamId)) {
+    out.unshift(snapshotFromSession(sessions.get(windowStreamId)))
+  }
+  return out
+}
+
+export function formatTerminalStreamContext({ layout = readDesktopLayoutSnapshot() } = {}) {
+  const terminalWindow = findTerminalStreamWindow(layout)
+  const windowStreamId = terminalWindow?.terminal_stream_id
+    ? normalizeStreamId(terminalWindow.terminal_stream_id)
+    : ''
+  const snapshots = relevantTerminalSnapshots(windowStreamId)
+  if (!terminalWindow && snapshots.length === 0) return ''
+
+  const visibleWindow = terminalWindow
+    ? (terminalWindow.visible !== false && terminalWindow.minimized !== true)
+    : (hasWindowInventory(layout) ? false : null)
+  const activeSnapshot = snapshots.find(s => windowStreamId && s.stream_id === windowStreamId)
+    || snapshots.find(s => !s.closed)
+    || snapshots[0]
+  const closeStreamId = windowStreamId || activeSnapshot?.stream_id || 'write_file'
+
+  const lines = ['Terminal preview window state:']
+  lines.push(`- visible_window: ${visibleWindow === null ? 'unknown' : (visibleWindow ? 'yes' : 'no')}`)
+
+  if (terminalWindow) {
+    const title = compactTerminalTitle(terminalWindow.title)
+    if (title) lines.push(`- window_title: ${title}`)
+    lines.push(`- window_stream_id: ${windowStreamId || 'unknown'}`)
+    const bounds = compactBounds(terminalWindow.bounds)
+    if (bounds) lines.push(`- window_bounds: ${bounds}`)
+    if (terminalWindow.focused !== undefined) lines.push(`- window_focused: ${terminalWindow.focused ? 'yes' : 'no'}`)
+  }
+
+  for (const snapshot of snapshots) {
+    const parts = [
+      `closed=${snapshot.closed ? 'true' : 'false'}`,
+      `format=${snapshot.format || 'plain'}`,
+      `hold_open=${snapshot.hold_open ? 'true' : 'false'}`,
+      `chunks=${snapshot.chunks.length}`,
+    ]
+    if (snapshot.artifact_kind) parts.push(`artifact_kind=${snapshot.artifact_kind}`)
+    if (snapshot.artifact_path) parts.push(`artifact_path=${snapshot.artifact_path}`)
+    const title = compactTerminalTitle(snapshot.title)
+    lines.push(`- stream ${snapshot.stream_id}: title="${title}", ${parts.join(', ')}`)
+  }
+
+  lines.push('Terminal preview closing method:')
+  lines.push(`- To close the visible preview, call terminal_stream with action="close", stream_id="${closeStreamId}".`)
+  lines.push('- If the stream has hold_open=true, include force=true when the user explicitly asks to close it or when the same file is opened in another local app.')
+  lines.push('- Do not tell the user no preview window exists while visible_window is yes.')
+
+  return lines.join('\n')
 }
 
 export function recordTerminalStreamEvent({

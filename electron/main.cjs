@@ -541,8 +541,12 @@ function windowSnapshot(win) {
   let bounds = null
   try { bounds = win.getBounds() } catch {}
   if (!bounds) return null
+  const isTerminalStream = win === terminalStreamWindow
+  const isMain = win === mainWindow
   return {
     id: win.id,
+    kind: isTerminalStream ? 'terminal_stream' : (isMain ? 'main' : 'window'),
+    terminal_stream_id: isTerminalStream ? terminalStreamWindowStreamId : undefined,
     title: win.getTitle(),
     visible: win.isVisible(),
     focused: win.isFocused(),
@@ -564,7 +568,8 @@ function getBailongmaWindowLayoutSnapshot() {
   const windows = BrowserWindow.getAllWindows()
     .map(windowSnapshot)
     .filter(Boolean)
-  return { displays, windows }
+  const terminalStream = windows.find(win => win.kind === 'terminal_stream') || null
+  return { displays, windows, terminal_stream_window: terminalStream }
 }
 
 function visibleWindowBlockers(display, excludeWindow = null) {
