@@ -21,6 +21,7 @@ import { stripTemporalWords } from './temporal-parser.js'
 import { selectTools } from './tool-router.js'
 import { computeSelfPerception, computeSelfSnapshot } from './self-perception.js'
 import { selectActivePolicies } from './active-policies.js'
+import { formatSelfEvolutionForPrompt } from './self-evolution.js'
 
 // runInjector 内部用到的检索/选择/解析原语（已拆到 ./injector-retrieval.js）
 import {
@@ -49,6 +50,12 @@ export {
 export { formatActivePoliciesForPrompt } from './active-policies.js'
 
 const L2_CONTEXT_HOURS = 24 * 7
+const SELF_EVOLUTION_CONTEXT_RE = /self[-\s]?evol|evolv|self[-\s]?improv|improve yourself|learn(?:ed|ing)?\s+(?:from|that|this)|lesson|policy|procedure|constraint|failure|feedback|\u81ea\u8fdb\u5316|\u8fdb\u5316|\u81ea\u5b66\u4e60|\u5b66\u5230\u4e86|\u6539\u8fdb|\u6559\u8bad|\u7ecf\u9a8c|\u89c4\u5219|\u7b56\u7565|\u53cd\u601d/i
+
+function shouldInjectSelfEvolutionContext(messageBody = '', isTick = false) {
+  if (isTick) return true
+  return SELF_EVOLUTION_CONTEXT_RE.test(String(messageBody || ''))
+}
 
 // hint：一层思考器的输出文本，用于扩展 L2 的记忆检索范围
 export async function runInjector({ message, state, hint = '', currentChannel = '' }) {
@@ -224,6 +231,9 @@ export async function runInjector({ message, state, hint = '', currentChannel = 
   // 注入器拿 agent_name 用作身份锚的开头（"你是 小白龙。..."）。
   const agentName = getConfig('agent_name') || '小白龙'
   const selfSnapshot = computeSelfSnapshot({ conversationWindow, actionLog, agentName })
+  const selfEvolution = shouldInjectSelfEvolutionContext(messageBody, isTickMessage)
+    ? formatSelfEvolutionForPrompt({ maxRecent: isTickMessage ? 3 : 5 })
+    : ''
 
   // Memory-Optimization v0.1 Phase 0：记录这一轮召回的"命中了什么/漏了什么"。
   // 写入 best-effort；任何失败都吞掉，绝不影响主流程。
@@ -272,5 +282,6 @@ export async function runInjector({ message, state, hint = '', currentChannel = 
     temporalRecall,
     selfPerception,
     selfSnapshot,
+    selfEvolution,
   }
 }

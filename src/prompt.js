@@ -738,6 +738,7 @@ export function buildContextBlock({
   // 自我快照（self-snapshot）：常驻的"你刚才是怎样的你"。风格指纹 + 工具习惯 + 身份锚。
   // 与 selfPerception 不同：snapshot 在正常情况下也出现，是 agent 的 proprioception。
   selfSnapshot = null,
+  selfEvolution = '',
 } = {}) {
   const sections = []
 
@@ -781,6 +782,10 @@ export function buildContextBlock({
   // 让 agent 先认领自己，再感知异常，最后切换行为——这是有顺序的 cognitive flow。
   if (selfSnapshot?.snapshotText) {
     sections.push(`<self-snapshot>\n${selfSnapshot.snapshotText}\n</self-snapshot>`)
+  }
+
+  if (selfEvolution) {
+    sections.push(`<self-evolution>\n${selfEvolution}\n</self-evolution>`)
   }
 
   // <self-perception> —— 自我感知层（内在状态，不是命令）

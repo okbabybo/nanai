@@ -68,6 +68,7 @@ export async function buildHeartbeatSystemPromptPreview({
     // Runtime info 也注入预览，让 UI 看到完整 context
     existenceDesc: describeExistence(birthTime),
     security: getSecurity(),
+    selfEvolution: injection.selfEvolution || '',
   })
 
   // For the preview UI (systemPrompt.html), surface a combined view so the
@@ -93,6 +94,7 @@ export async function buildHeartbeatSystemPromptPreview({
       activePolicies: injection.activePolicies || [],
       recallMemories: injection.recallMemories || [],
       taskKnowledge: injection.taskKnowledge || [],
+      selfEvolution: injection.selfEvolution || '',
     },
     stateSnapshot: workingState,
     derived: {

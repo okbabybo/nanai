@@ -27,6 +27,7 @@ export function initChat({
   const sendBtn = document.getElementById("send-btn");
 
   let inputLocked = false;
+  const pendingLocalSends = new Set();
   let closeTimer = null;
   let hasPendingJarvisMessage = false;
   let pendingMessageDismissed = false;
@@ -237,22 +238,39 @@ export function initChat({
 
   // text 显式传入时直接发送、不经过输入框（语音识别用：voice 完全不在 msg-input 留草稿）；
   // 不传 text 则保持原行为，从输入框读取并清空。
+  function newClientMessageId() {
+    const cryptoObj = globalThis.crypto;
+    if (cryptoObj?.randomUUID) return cryptoObj.randomUUID();
+    const rand = Math.random().toString(36).slice(2, 10);
+    return `local-${Date.now().toString(36)}-${rand}`;
+  }
+
+  function localSendKey(channel, text) {
+    return `${String(channel || "TUI").toUpperCase()}\n${String(text || "").trim()}`;
+  }
+
   async function send({ channel = null, label = null, text = null } = {}) {
     if (inputLocked) return;
     const fromInput = (text == null);
     const content = (fromInput ? msgInput.value : text).trim();
     if (!content) return;
+    const pendingKey = localSendKey(channel, content);
+    if (pendingLocalSends.has(pendingKey)) return;
+    pendingLocalSends.add(pendingKey);
     if (fromInput) { msgInput.value = ""; autoGrowInput(); }
     // If onUserMessage returns a string, use it as the backend payload; if it returns false, skip the backend call
     const override = onUserMessage?.(content);
     addMsg("user", content, { label: label || undefined });
     openChat();
     scheduleClose(1000);
-    if (override === false) return;
+    if (override === false) {
+      pendingLocalSends.delete(pendingKey);
+      return;
+    }
 
     try {
       const backendText = (typeof override === "string") ? override : content;
-      const payload = { content: backendText, from_id: "ID:000001" };
+      const payload = { content: backendText, from_id: "ID:000001", client_message_id: newClientMessageId() };
       if (channel) payload.channel = channel;
       const resp = await fetch(`${apiBase}/message`, {
         method: "POST",
@@ -271,6 +289,8 @@ export function initChat({
       console.warn("[send]", error.message);
       addMsg("jarvis", "发送失败 — 请检查本地服务是否运行。");
       openChat(true);
+    } finally {
+      pendingLocalSends.delete(pendingKey);
     }
   }
 

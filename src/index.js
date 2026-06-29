@@ -14,6 +14,7 @@ import { summarizeThread } from './memory/thread-summarize.js'
 import { classifyThreadAttribution } from './memory/thread-classifier.js'
 import { runMemoryRefreshLoop } from './memory/refresh-loop.js'
 import { startConsolidationLoop } from './memory/consolidation-loop.js'
+import { recordSelfEvolutionFromMemories } from './memory/self-evolution.js'
 import { runRuntimeInjector } from './context/runtime-injector.js'
 import { selectContextSections } from './context/section-gate.js'
 import { getDB, getConfig, setConfig, getKnownEntities, getOrInitBirthTime, insertConversation, insertMemory, getRecentConversationPartners, getDueReminders, markReminderFired, advanceReminderDueAt, getNextPendingReminder, getMemoryCount, getRecentConversationTimeline, loadFocusStack, loadThreadState, saveThreadState, setCurrentFocusTopic, setCurrentThreadId, updateUserMessageFocusTopic, reassignConversationsThread, insertActionLog } from './db.js'
@@ -296,8 +297,12 @@ const TASK_IDLE_TICK_LIMIT = 5  // auto-clear task after N consecutive task tick
 configureRecognizerScheduler({
   onResult: (memories) => {
     emitEvent('memories_written', { count: memories?.length || 0, memories: memories || [] })
+    const evolved = recordSelfEvolutionFromMemories(memories || [], { emitEvent })
     if (Array.isArray(memories) && memories.length > 0) {
       refreshUserProfile(PRIMARY_USER_ID)
+    }
+    if (evolved.length > 0) {
+      console.log(`[self-evolution] learned ${evolved.length} behavior update(s)`)
     }
   },
 })
@@ -1265,6 +1270,7 @@ async function runTurn(input, label, msg = null) {
       focusTickCounter: state.tickCounter || 0,
       selfPerception: injection.selfPerception || null,
       selfSnapshot: injection.selfSnapshot || null,
+      selfEvolution: injection.selfEvolution || '',
     }
 
     // ① 统一相关度门（动态上下文记忆池 / 少即是强：排除导向的精细化管理）。

@@ -1181,7 +1181,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
           recordToolLoopOutcome(toolLoopState, tc.name, fingerprint, result)
           // 单一权威：一次未被 silent/closer 拦截、未熔断的 send_message 真正执行过 →
           //   用户确实收到了回复。这是 delivered 唯一被置 true 的地方（除文末协议兜底外）。
-          if (tc.name === 'send_message' && !strictSuppressed) delivered = true
+          if (tc.name === 'send_message' && !strictSuppressed && !isToolFailure(result)) delivered = true
           if (deliveredByToolResult && !strictSuppressed) {
             delivered = true
             toolDeliveredFinalReply = true
@@ -1207,7 +1207,8 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         sentMessage = true
         // 仅对真实发出的（未被 dedup 拦截的）send_message 记录到 turn 历史，避免被拦截的
         // closer / silent signal / media-closer 反过来污染后续判断（已经被拦截的就当没发生）。
-        if (!closerSuppressed && !silentSignalSuppressed && !mediaCloserSuppressed) {
+        if (!closerSuppressed && !silentSignalSuppressed && !mediaCloserSuppressed
+            && (deliveredByToolResultForTurn || (tc.name === 'send_message' && !isToolFailure(result)))) {
           const target = normalizedArgs.target_id
           const content = String(normalizedArgs.content || '')
           if (target) {
@@ -1442,7 +1443,7 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
         // 兜底也是"真正执行过的 send_message"：置 delivered，并触发与正常路径同样的
         //   onToolCall 回调（语音渠道自动 TTS、UI tool_call 事件、toolCallLog 登记都在那里）。
         //   __fallback 标记仅给 onToolCall 用于遥测分类；executeTool 收到的是干净的 fbArgs。
-        delivered = true
+        delivered = !isToolFailure(fbResult)
         lastToolResult = { name: 'send_message', args: fbArgs, result: fbResult }
         if (onToolCall) onToolCall('send_message', { ...fbArgs, __fallback: true }, fbResult)
       } catch (err) {

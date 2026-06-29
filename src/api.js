@@ -31,6 +31,7 @@ import { getPersonCard, setPersonCardPanelState, getPersonCardPanelState } from 
 import { setDocPanelState, getDocPanelState, DOC_TOPICS } from './docs.js'
 import { getTraces, getTrace, clearTraces, getTraceStatus } from './runtime/turn-trace.js'
 import { getTerminalStreamSnapshot } from './terminal-stream.js'
+import { getSelfEvolutionSnapshot } from './memory/self-evolution.js'
 
 export { emitEvent }
 
@@ -50,6 +51,36 @@ const D3_VENDOR_PATH     = path.join(paths.resourcesDir, 'node_modules', 'd3', '
 const SANDBOX_PATH       = paths.sandboxDir
 const DEFAULT_AGENT_NAME = '小白龙'
 const DEFAULT_API_HOST = '127.0.0.1'
+const INBOUND_MESSAGE_DEDUPE_TTL_MS = 10_000
+const INBOUND_MESSAGE_FALLBACK_DEDUPE_MS = 1_500
+const recentInboundMessages = new Map()
+
+function pruneRecentInboundMessages(now = Date.now()) {
+  for (const [key, entry] of recentInboundMessages) {
+    if (!entry || now - entry.timestamp > INBOUND_MESSAGE_DEDUPE_TTL_MS) {
+      recentInboundMessages.delete(key)
+    }
+  }
+}
+
+function normalizeClientMessageId(value = '') {
+  const text = String(value || '').trim()
+  return /^[a-zA-Z0-9._:-]{8,128}$/.test(text) ? text : ''
+}
+
+function claimInboundMessage({ fromId, channel, content, clientMessageId }) {
+  const now = Date.now()
+  pruneRecentInboundMessages(now)
+  const explicitId = normalizeClientMessageId(clientMessageId)
+  const key = explicitId
+    ? `id:${explicitId}`
+    : `body:${JSON.stringify([fromId || '', channel || '', content || ''])}`
+  const existing = recentInboundMessages.get(key)
+  const ttl = explicitId ? INBOUND_MESSAGE_DEDUPE_TTL_MS : INBOUND_MESSAGE_FALLBACK_DEDUPE_MS
+  if (existing && now - existing.timestamp <= ttl) return { claimed: false, key }
+  recentInboundMessages.set(key, { timestamp: now })
+  return { claimed: true, key }
+}
 
 // card.action signals that are lifecycle/system-internal — stored in DB for passive injector use only, not pushed to the agent queue
 function getApiHost() {
@@ -371,11 +402,17 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
 
     // POST /message — send message to agent
     if (req.method === 'POST' && url.pathname === '/message') {
+      let claim = null
       try {
         const body = await readJsonBody(req)
         const { from_id = 'ID:000001', content, channel = 'API' } = body
         if (!content?.trim()) return jsonResponse(res, 400, { error: 'content required' })
         const trimmed = content.trim()
+        const clientMessageId = body.client_message_id ?? body.clientMessageId ?? ''
+        claim = claimInboundMessage({ fromId: from_id, channel, content: trimmed, clientMessageId })
+        if (!claim.claimed) {
+          return jsonResponse(res, 200, { ok: true, duplicate: true, agent_name: getAgentName() })
+        }
         const strictEvaluation = body.strict_evaluation ?? body.strictEvaluation
           ?? (String(body.evaluation_mode || body.evaluationMode || '').toLowerCase() === 'strict' ? true : undefined)
         const forbiddenTools = body.forbidden_tools ?? body.forbiddenTools
@@ -386,6 +423,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
         emitEvent('message_in', { from_id, content: trimmed, channel, timestamp: new Date().toISOString() })
         jsonResponse(res, 200, { ok: true, agent_name: getAgentName() })
       } catch (e) {
+        if (claim?.claimed && claim.key) recentInboundMessages.delete(claim.key)
         jsonResponse(res, 400, { error: e.message })
       }
       return
@@ -550,7 +588,19 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     if (req.method === 'GET' && url.pathname === '/status') {
       const db = getDB()
       const { n } = db.prepare('SELECT COUNT(*) as n FROM memories').get()
-      jsonResponse(res, 200, { ok: true, memory_count: n, running: isRunning() })
+      jsonResponse(res, 200, {
+        ok: true,
+        memory_count: n,
+        running: isRunning(),
+        self_evolution: getSelfEvolutionSnapshot({ maxRecent: 5 }),
+      })
+      return
+    }
+
+    // GET /self-evolution — recent memory-backed behavior improvements
+    if (req.method === 'GET' && (url.pathname === '/self-evolution' || url.pathname === '/memory/self-evolution')) {
+      const limit = Math.max(1, Math.min(parseInt(url.searchParams.get('limit') || '20'), 24))
+      jsonResponse(res, 200, { ok: true, ...getSelfEvolutionSnapshot({ maxRecent: limit }) })
       return
     }
 
