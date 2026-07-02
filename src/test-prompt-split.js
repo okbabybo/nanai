@@ -50,13 +50,13 @@ const sys2 = buildSystemPrompt({
   constraints: [{ content: 'r2' }],
   thoughtStack: [{ concept: 'X', line: 'y' }],
   awakeningTicks: 3,
-  hasActiveTask: true,
   task: 'do thing',
 })
 assert(sys1 === sys2, 'system stays stable when only dynamic fields differ')
 assert(sys1.includes('Longma'), 'system contains agent name')
 assert(sys1.includes('Curious, brief'), 'system contains persona')
 assert(sys1.includes('## Top-Level Behavior Rules'), 'system contains hard floor')
+assert(sys1.includes('Progress notes are action-first'), 'system contains action-first progress note rule')
 assert(!sys1.includes('round1 mem'), 'system does NOT contain dynamic memories')
 assert(!sys1.includes('round1 dir'), 'system does NOT contain dynamic directions')
 assert(!sys2.includes('do thing'), 'system does NOT contain active task content')
@@ -169,9 +169,9 @@ assert(sysMusic3.includes('Music Mode: Highest Priority'), '"换一首": Music M
 
 // 8.2 Video gate
 const sysVideo = buildSystemPrompt({ agentName: 'Longma', persona: 'p', userMessage: '帮我在B站看视频' })
-assert(sysVideo.includes('Video Mode: Reply Brevity'), 'video keyword: Video Mode injected')
+assert(sysVideo.includes('## Video Mode'), 'video keyword: Video Mode injected')
 const sysVideo2 = buildSystemPrompt({ agentName: 'Longma', persona: 'p', userMessage: 'open youtube' })
-assert(sysVideo2.includes('Video Mode: Reply Brevity'), 'youtube: Video Mode injected')
+assert(sysVideo2.includes('## Video Mode'), 'youtube: Video Mode injected')
 
 // 8.3 Weather Surface gate（工作流块现由 weather 能力经 capability-registry 注入）
 const sysWeather = buildSystemPrompt({ agentName: 'Longma', persona: 'p', userMessage: '今天天气怎么样' })
