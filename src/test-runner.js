@@ -37,16 +37,20 @@ async function process(input, label) {
   const persona = getConfig('persona') || ''
   const systemPrompt = buildSystemPrompt({ persona })
   const contextBlock = buildContextBlock({ memories: memoriesText, directions: directionsText })
-  // For the standalone test runner we don't have buildLLMMessages plumbing, so
-  // prepend the context to the user message directly — matches what the main
-  // loop does to the current user message in production.
-  const finalUserMessage = contextBlock ? `${contextBlock}\n\n${input}` : input
+  // Mirror production shape: round-local context sits in a pre-history runtime
+  // message, while the current user message stays exactly what the user said.
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    ...(contextBlock ? [{ role: 'user', content: `[runtime context]\n${contextBlock}` }] : []),
+    { role: 'user', content: input },
+  ]
 
   let response
   try {
     response = await callLLM({
       systemPrompt,
-      message: finalUserMessage,
+      message: input,
+      messages,
       tools: injection.tools || ['send_message']
     })
     console.log('\nJarvis 回应：')
