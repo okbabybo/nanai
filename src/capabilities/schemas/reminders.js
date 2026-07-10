@@ -4,7 +4,7 @@ export const remindersSchemas = {
     type: 'function',
     function: {
       name: 'manage_reminder',
-      description: 'Manage reminders: create one-off/daily/weekly/monthly reminders, list them, or cancel them. When due, the system sends you a system message so you can continue execution. One-off reminders with the same target_id and minute are merged to avoid duplicate triggers. After creating a reminder, call send_message to tell the user.',
+      description: 'Manage reminders: create one-off/daily/weekly/monthly reminders, list them, or cancel them. When due, the system sends you a system message so you can continue execution. One-off reminders with the same target_id and minute are merged to avoid duplicate triggers. In a user-requested turn, confirm a newly created reminder in the reply. During an autonomous TICK, decide separately whether creating it and notifying anyone are appropriate; one does not force the other.',
       parameters: {
         type: 'object',
         properties: {

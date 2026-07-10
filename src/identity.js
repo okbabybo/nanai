@@ -155,5 +155,5 @@ export function formatPresenceForPrompt(canonicalId = PRIMARY_USER_ID) {
     .map(c => `${c.channel} (${fmt(c.minutesAgo)})`)
 
   const suggestion = suggestProactiveChannel(canonicalId)
-  return `User reachability snapshot (last 24h):\n  ${parts.join(', ') || 'no recent activity'}\nSuggested channel for proactive outreach right now: ${suggestion}.\n  - AUTO follows the channel of the user's most recent message — if they last spoke to you on WECHAT, replies and proactive nudges should go to WECHAT, even across multiple turns (reminders, ticks, scheduled follow-ups).\n  - send_message accepts an optional channel parameter; omit it to use the suggestion above, or pass an explicit channel (e.g. TUI for long-form output that belongs on the local UI) to override.`
+  return `User reachability snapshot (last 24h):\n  ${parts.join(', ') || 'no recent activity'}\nAUTO channel currently resolves to: ${suggestion}.\n  - AUTO follows the channel of the user's most recent message, including across multiple turns. This is routing and reachability evidence, not a requirement to send or to use that channel.\n  - send_message accepts an optional channel parameter; omit it to use AUTO, or choose an explicit channel (for example TUI for long-form output that belongs on the local UI) when your situational judgment supports it.`
 }

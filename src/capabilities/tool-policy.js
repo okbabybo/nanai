@@ -58,6 +58,35 @@ const TOOL_RISK = {
   manage_api_capability: 'high',
   set_security: 'high',
 }
+
+// Audit risk and autonomous authority are related but not identical. Several
+// read-only or reversible capabilities (for example web reads and speech) are
+// classified "high" for observability/cost, yet blanket-blocking every high
+// label would make autonomous task progress impossible. General shell tools
+// stay in the explicit-authorization set because their cwd boundary is not an
+// OS sandbox. The rest of this set covers authority changes, installation,
+// destructive state changes, process control, and unbudgeted provider work.
+const AUTONOMOUS_USER_AUTH_REQUIRED = new Set([
+  'delete_file',
+  'install_software',
+  'install_tool',
+  'uninstall_tool',
+  'manage_tool_factory',
+  'set_security',
+  'grant_agent_delegation',
+  'manage_api_capability',
+  'kill_process',
+  'exec_command',
+  'exec_quick_command',
+  'exec_task_command',
+  'exec_background_command',
+  'generate_image',
+  'generate_music',
+  'generate_lyrics',
+  'run_capability',
+  'run_api_capability',
+  'analyze_image',
+])
 export function classifyTool(name) {
   return TOOL_RISK[name] || 'medium'
 }
@@ -88,8 +117,16 @@ export function evaluateToolPolicy(name, args = {}, context = {}) {
     const reasons = isDangerousShellCommand(args.command || args.cmd || '')
     if (reasons.length) return { allowed: false, risk, reason: reasons.join('; ') }
   }
-  if (context.autonomous && risk === 'high' && !context.allowHighRiskAutonomy) {
-    return { allowed: false, risk, reason: 'high-risk tool requires an explicit user-driven context' }
+  if (
+    context.autonomous
+    && name === 'manage_rule'
+    && String(args.action || 'list').trim().toLowerCase() !== 'list'
+    && !context.allowHighRiskAutonomy
+  ) {
+    return { allowed: false, risk, reason: 'autonomous Tick may inspect rules, but changing persistent rules requires an explicit user-driven context' }
+  }
+  if (context.autonomous && AUTONOMOUS_USER_AUTH_REQUIRED.has(name) && !context.allowHighRiskAutonomy) {
+    return { allowed: false, risk, reason: 'this authority-changing, destructive, or unbudgeted tool requires an explicit user-driven context' }
   }
   return { allowed: true, risk, reason: '' }
 }

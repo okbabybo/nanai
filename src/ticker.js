@@ -3,7 +3,7 @@
 // 设计：
 // - L2 通过 set_tick_interval 工具指定 { seconds, ttl }
 // - seconds ∈ [10, 3600]，ttl ∈ [1, 50]，越界 clamp
-// - 每次 onTick 执行后 ttl--，到 0 自动回归默认节奏
+// - 每次成功完成的自主 TICK 后 ttl--；用户/后台消息和中断/失败不消耗
 // - 优先级低于"有消息(0)"和"429 限流"，高于"有任务(30s)"和"空闲默认"
 
 import { emitEvent } from './events.js'
@@ -18,6 +18,7 @@ const state = {
   ttl: 0,
   reason: '',
   setAt: null,
+  revision: 0,
 }
 
 function clampSeconds(n) {
@@ -61,6 +62,7 @@ export function setCustomInterval({ seconds, ttl, reason = '' }) {
   state.ttl = t
   state.reason = String(reason || '').slice(0, 80)
   state.setAt = Date.now()
+  state.revision++
 
   emitEvent('ticker_set', { seconds: s, ttl: t, reason: state.reason, clampedFrom })
   console.log(`[Ticker] L2 设置节奏：${s}s × ${t} 轮（${state.reason || '无理由'}）`)
@@ -73,7 +75,7 @@ export function getCustomIntervalMs() {
   return state.ttl > 0 ? state.intervalMs : null
 }
 
-// onTick 结束后调：消耗一轮 TTL
+// 成功的自主 TICK 结束后调：消耗一轮 TTL
 export function consumeTick() {
   if (state.ttl <= 0) return
   state.ttl--
@@ -93,6 +95,7 @@ export function getStatus() {
     seconds: state.intervalMs ? state.intervalMs / 1000 : null,
     ttl: state.ttl,
     reason: state.reason,
+    revision: state.revision,
   }
 }
 
@@ -101,4 +104,5 @@ export function reset() {
   state.ttl = 0
   state.reason = ''
   state.setAt = null
+  state.revision++
 }

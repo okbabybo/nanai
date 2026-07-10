@@ -17,6 +17,7 @@ import { register } from 'node:module'
 register('./test-prompt-split-loader.mjs', import.meta.url)
 
 const { buildSystemPrompt, buildContextBlock, combinePromptForPreview } = await import('./prompt.js')
+const { buildAutonomousTickDirections } = await import('./runtime/tick-policy.js')
 
 function assert(cond, label) {
   if (!cond) {
@@ -56,6 +57,8 @@ assert(sys1 === sys2, 'system stays stable when only dynamic fields differ')
 assert(sys1.includes('Longma'), 'system contains agent name')
 assert(sys1.includes('Curious, brief'), 'system contains persona')
 assert(sys1.includes('## Top-Level Behavior Rules'), 'system contains hard floor')
+assert(sys1.includes('neither passive nor proactive by default'), 'system gives Tick posture judgment to the model')
+assert(!sys1.includes('You are passive by default'), 'system no longer imposes a passive Tick default')
 assert(sys1.includes('Progress notes are action-first'), 'system contains action-first progress note rule')
 assert(sys1.includes('harmless, reversible local display actions'), 'system tells agent to directly open harmless local display results')
 assert(!sys1.includes('round1 mem'), 'system does NOT contain dynamic memories')
@@ -108,6 +111,17 @@ assert(!sys1.includes('Sandbox Status:'), 'system does NOT contain dynamic sandb
 const justNothing = buildContextBlock({ hasActiveTask: false })
 assert(justNothing.startsWith('<context>'), 'minimal context still wrapped')
 assert(justNothing.includes('<task active="false">'), 'minimal context advertises no active task')
+assert(justNothing.includes('does not prescribe silence, activity, or communication'), 'no-task context remains behaviorally neutral')
+assert(!justNothing.includes('Default to quiet presence'), 'no-task context has no forced quiet default')
+
+const awakeningContext = buildContextBlock({ awakeningTicks: 2 })
+assert(awakeningContext.includes('not a prescribed exploration program'), 'awakening is context rather than a fixed workflow')
+assert(!awakeningContext.includes('Just go look'), 'awakening no longer forces exploration')
+assert(!awakeningContext.includes('Do not ask again'), 'awakening no longer hard-codes communication behavior')
+
+const tickContext = buildContextBlock({ directions: buildAutonomousTickDirections() })
+assert(tickContext.includes('<directions>'), 'autonomous Tick policy is carried in round-local directions')
+assert(tickContext.includes('make your own situational judgment'), 'final Tick context delegates semantic judgment to the model')
 
 // 4) Person + curiosity composition
 const ctxPerson = buildContextBlock({

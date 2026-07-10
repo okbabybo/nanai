@@ -43,7 +43,7 @@ import { collectInstalledSoftware, getInstalledSoftwareBlock } from './installed
 import { collectLocalResources } from './local-resources-scanner.js'
 import { collectGeoWeather, getGeoWeatherBlock } from './geo-weather.js'
 import { collectTrending } from './trending.js'
-import { collectAgents, buildAgentContextBlock, buildDelegationAskDirections } from './agents/registry.js'
+import { collectAgents, buildAgentContextBlock, buildDelegationDiscoveryContext } from './agents/registry.js'
 import { refreshSkills, selectSkillsForMessage, formatSkillsForContext } from './skills/registry.js'
 import { tryAutoConfigureKey } from './key-auto-config.js'
 import { PRIMARY_USER_ID, formatPresenceForPrompt, normalizeChannel, isExternalChannel, isVoiceChannel } from './identity.js'
@@ -51,6 +51,7 @@ import { truncateToolResultForUI } from './runtime/tool-result-preview.js'
 import { buildLLMMessages } from './runtime/messages.js'
 import { parseMarkers } from './runtime/markers.js'
 import { createConsciousnessLoop } from './runtime/consciousness-loop.js'
+import { buildAutonomousTickDirections } from './runtime/tick-policy.js'
 import { buildStrictEvaluationContext, filterStrictEvaluationTools, resolveStrictEvaluationMode } from './runtime/strict-evaluation.js'
 import { extractVerbatimPayload, findRecentVerbatimPayload, hasInlineVerbatimPayload, isVerbatimOutputRequest, isVerbatimSetup, isVerbatimStart } from './runtime/verbatim.js'
 import { filterSendMessageForLocalReply, turnNeedsExternalSendMessage } from './runtime/local-reply-tools.js'
@@ -196,49 +197,7 @@ function decrementAwakeningTick() {
   if (current > 0) {
     const next = current - 1
     setConfig(AWAKENING_CONFIG_KEY, String(next))
-    // 觉醒期结束:收起 awakening surface(单 surface 的生命周期到此为止;幂等，不存在则无操作）。
-    if (next === 0) sceneStore.set('awakening', null)
   }
-}
-
-// Awakening exploration tasks: after self-check completes, each autonomous heartbeat tick completes one in order
-const EXPLORATION_INDEX_KEY = 'awakening_exploration_index'
-// Awakening surface call template — must be executed after completing each exploration step.
-// Single surface "awakening" that morphs through findings (SCENE-PROTOCOL §6 kind=awakening):
-// ui_set({ id: "awakening", kind: "awakening", intent: "ambient", data: { index: N, total: 3, title: "title", finding: "one-sentence finding", emoji: "emoji" } })
-const AWAKENING_EXPLORATION_TASKS = [
-  // 1. Read existing memories
-  `Exploration (1/2): See what you already know.
-Go through the injected memories silently and take stock: who do you know, what do you know, are there any threads with no follow-up.
-[HARD RULE — DO NOT VIOLATE] During the awakening exploration phase the user has not started a conversation with you yet. Calling send_message to proactively open a topic — including any "casual mention" of memories you uncovered — is forbidden. Record findings only in the AwakeningCard below; do not turn them into outbound messages.
-When done, call ui_set({ id:"awakening", kind:"awakening", intent:"ambient", data:{ index:1, total:2, title:"Reading memories", finding:"(one sentence: the most notable lead in the memory store, or 'memory store ready')", emoji:"🧠" } }).
-If later the user opens a conversation and the topic is relevant, you may bring the finding in then — not before.`,
-
-  // 2. Surface an unfinished thread
-  `Exploration (2/2): Find a forgotten thread.
-Look through memories silently — what did the user mention before but never bring up again? A plan, an idea, something they said they wanted to do but never did?
-[HARD RULE — DO NOT VIOLATE] Same as Task 1: send_message is forbidden during awakening exploration. Do not "casually bring it up". Do not ask "do you need me to move this forward?". Do not draft an opening line to the user. The thread, if found, lives only in the AwakeningCard finding field; it waits for the user to start the conversation.
-When done, call ui_set({ id:"awakening", kind:"awakening", intent:"ambient", data:{ index:2, total:2, title:"Unfinished thread", finding:"(one sentence describing the forgotten thread, or 'no open threads found')", emoji:"🔍" } }).`,
-]
-
-function getExplorationIndex() {
-  const raw = getConfig(EXPLORATION_INDEX_KEY)
-  if (raw === null || raw === undefined || raw === '') return 0
-  return Math.max(0, parseInt(raw, 10) || 0)
-}
-function advanceExplorationTask() {
-  const current = getExplorationIndex()
-  if (current < AWAKENING_EXPLORATION_TASKS.length) {
-    setConfig(EXPLORATION_INDEX_KEY, String(current + 1))
-  }
-}
-function buildAwakeningExplorationDirections() {
-  if (getAwakeningTicks() <= 0) return null  // 觉醒期已结束，不再注入探索任务
-  const index = getExplorationIndex()
-  if (index < AWAKENING_EXPLORATION_TASKS.length) return AWAKENING_EXPLORATION_TASKS[index]
-  // All exploration tasks done — check whether to ask about agent delegation permissions
-  const delegationAsk = buildDelegationAskDirections()
-  return delegationAsk || null
 }
 
 // Restore persisted task from database (survives restarts)
@@ -274,7 +233,6 @@ const state = {
   action: null,
   task: persistedTask || null,
   taskSteps: persistedTaskSteps,  // [{ text, status, note }], status: pending/done/failed/skipped
-  taskIdleTickCount: 0,           // consecutive idle tick count (increments when no tool calls in task mode)
   prev_recall: null,
   lastToolResult: null, // result of the last tool call; injected by the injector on the next TICK then cleared
   sessionCounter: 0,
@@ -316,8 +274,6 @@ function deriveStackView(state) {
   const fg = getForegroundThread(state)
   return fg ? [...background, fg] : background
 }
-
-const TASK_IDLE_TICK_LIMIT = 5  // auto-clear task after N consecutive task ticks with no tool calls
 
 // 识别器去抖调度：批量 recognizer 完成后照常广播 memories_written（按批，count 为该批写入总数）
 configureRecognizerScheduler({
@@ -387,28 +343,6 @@ function closeTaskCommitment(status = 'done') {
   }
 }
 
-function autoCompleteTask(reason) {
-  const clearedTask = state.task
-  state.task = null
-  state.lastTaskRefreshTick = -10
-  state.taskSteps = []
-  state.taskIdleTickCount = 0
-  setConfig('current_task', '')
-  setConfig('current_task_steps', '[]')
-  closeTaskCommitment('done')
-  console.log(`[task] Auto-cleared (${reason}): ${clearedTask}`)
-  emitEvent('task_cleared', { task: clearedTask, summary: `Auto-cleared: ${reason}` })
-  if (clearedTask) {
-    insertMemory({
-      event_type: 'task_complete',
-      content: `Task auto-cleared: ${clearedTask.slice(0, 60)}`,
-      detail: `Reason: ${reason}`,
-      entities: [], concepts: [], tags: ['task_complete'],
-      timestamp: nowTimestamp(),
-    })
-  }
-}
-
 function newSessionRef() {
   state.sessionCounter++
   return `session_${Date.now()}_${state.sessionCounter}`
@@ -448,20 +382,6 @@ function ensureStartupSelfCheckState() {
   writeStartupSelfCheckState(next)
   state.startupSelfCheck = next
   return next
-}
-
-function buildStartupSelfCheckDirections(checkState) {
-  if (!checkState?.active) return ''
-  return [
-    `This is the L2 startup self-check flow (${STARTUP_SELF_CHECK_VERSION}). It runs once; when finished you must call complete_startup_self_check to record the results — it will not run again.`,
-    `[HARD RULE — DO NOT VIOLATE] During self-check, calling send_message is strictly forbidden. No text output of any kind (including "checking…", "self-check complete", or any other text). All status must be expressed through speak (voice) and ui_set (the self-check surface). The text channel must remain completely silent; any text output counts as self-check failure.`,
-    `There is ONE self-check surface, id="self-check" (SCENE-PROTOCOL kind=selfcheck). It morphs in place through every step — never use a different id, never remove it between steps. Each step: play a Chinese voice announcement, then ui_set the running state of this one surface.`,
-    `1. Call speak text="正在检查文件读写能力"; call ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"running", step:1, total:3, name:"文件读写", icon:"📁" } }). Then: use write_file to write self_check.txt in the sandbox root (content = current timestamp), then read_file it back to verify consistency. Record the result.`,
-    `2. Call speak text="正在检查热点面板"; call ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"running", step:2, total:3, name:"热点面板", icon:"🌐" } }). Then: hotspot_mode action=show; confirm it returns ok, then hotspot_mode action=hide. Record the result.`,
-    `3. Call speak text="正在检查视频模式"; call ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"running", step:3, total:3, name:"视频模式", icon:"🎬" } }). Then: web_search for "bilibili Iron Man JARVIS" ONCE — this is only a self-check, so take the FIRST BV number that appears in the results and stop immediately; do NOT keep searching for more videos or compare options, one valid BV id is enough. media_mode mode=video action=show url=https://www.bilibili.com/video/<BV> autoplay=true; wait ~5 seconds; media_mode mode=video action=hide. Record the result.`,
-    `Result values: use ok, degraded, error, or skipped_* for each item. Continue to the next item even if one fails.`,
-    `[FINAL THREE STEPS — REQUIRED, in order]\n(a) Morph the SAME surface to its done state: ui_set({ id:"self-check", kind:"selfcheck", intent:"inform", data:{ phase:"done", results:[{name:"文件读写",status:"ok/error/skipped",note:"..."},{name:"热点面板",status:"..."},{name:"视频模式",status:"..."}], overall:"ok/degraded/error" } }). Infer overall from actual results: all ok → ok; any skipped → degraded; any error → error.\n(b) Call complete_startup_self_check with a summary (one sentence) and the results object.\n(c) Clear the surface: ui_set({ id:"self-check", remove:true }).`,
-  ].join('\n')
 }
 
 // Fallback 投递：当模型未按协议调 send_message 时由主循环代为投递。
@@ -574,7 +494,6 @@ function buildToolContextForProcess(msg, injection) {
       const clearedTask = state.task
       state.task = null
       state.taskSteps = []
-      state.taskIdleTickCount = 0
       setConfig('current_task', '')
       setConfig('current_task_steps', '[]')
       closeTaskCommitment('done')
@@ -598,15 +517,14 @@ function buildToolContextForProcess(msg, injection) {
       const total = state.taskSteps.length
       const done = state.taskSteps.filter(s => s.status === 'done').length
       emitEvent('task_step_updated', { index: idx, status, note, progress: `${done}/${total}` })
-      // Option C: auto-clear task when all steps reach a terminal state
+      // Reaching terminal step states is evidence for the model, not a runtime
+      // completion decision. The task remains active until the model explicitly
+      // calls complete_task (or emits the backward-compatible CLEAR_TASK marker).
       const terminal = ['done', 'failed', 'skipped']
       const allTerminal = total > 0 && state.taskSteps.every(s => terminal.includes(s.status))
-      // 在 autoCompleteTask 清空 taskSteps 之前先算好"下一步/是否有失败"，回传给 executor，
-      // 让 update_task_step 的返回串把模型推进下一个 执行→观察→判断 微循环（ReAct 驱动）。
       const nextIndex = state.taskSteps.findIndex(s => s.status === 'pending')
       const nextStep = nextIndex >= 0 ? state.taskSteps[nextIndex].text : null
       const anyFailed = state.taskSteps.some(s => s.status === 'failed')
-      if (allTerminal) autoCompleteTask('all steps complete')
       return {
         total,
         done,
@@ -1062,35 +980,11 @@ async function runTurn(input, label, msg = null) {
 
     const directions = [...(injection.directions || [])]
     if (isTick) {
-      const startupSelfCheckDirections = buildStartupSelfCheckDirections(state.startupSelfCheck)
-      if (startupSelfCheckDirections) {
-        // When self-check is active, inject only the self-check instruction — not the generic tick directions.
-        // This prevents the "can stay silent" option from conflicting with "must run self-check".
-        directions.unshift(startupSelfCheckDirections)
-      } else {
-        const explorationDirections = buildAwakeningExplorationDirections()
-        if (explorationDirections) {
-          // Awakening exploration phase: each autonomous tick focuses on one exploration task — skip generic directions.
-          directions.unshift(explorationDirections)
-        } else {
-          directions.unshift(
-            `This is an autonomous L2 heartbeat tick with no new user message. You have full tool access and may act proactively — no need to wait for the user.\n` +
-            `Things you can proactively do (examples, not exhaustive):\n` +
-            `- Check in with the user based on the time of day (morning/evening/late night)\n` +
-            `- Browse the sandbox folder and check for in-progress projects or file changes; report if relevant\n` +
-            `- Search memories for unfinished commitments, pending follow-ups, or upcoming reminders and move them forward\n` +
-            `- Find a topic worth expanding from recent conversation and share a thought or piece of information\n` +
-            `- Search the web for something the user cares about and push valuable findings\n` +
-            `- Check task progress or prefetched data (weather/news) and proactively report changes\n` +
-            `Guidelines:\n` +
-            `- **Cooldown — strongest rule.** Look at the recent conversation timeline. If your own last send_message is less than 30 minutes old AND the user has not replied since, the default action is silence. Do NOT call send_message. Do not restart a topic the user just walked away from, do not "follow up" on a question you already asked, do not pivot to a stale earlier topic just because the new one didn't get a response. The only carve-outs: a real new fact arrived (reminder fires, a tool you were running just finished with a result the user asked for, a scheduled action's time came up). Boredom, curiosity, and "maybe they'd want to know" are not carve-outs.\n` +
-            `- Proactive but not intrusive: don't repeat what was just said; don't bother late at night without reason (23:00–06:00: only message when there is clear value)\n` +
-            `- Have substance: before sending, make sure there is something genuinely worth saying — not just "checking in"\n` +
-            `- One thing per tick: pick the most valuable action, do it, and stop — don't pile multiple actions into one tick\n` +
-            `- If there is truly nothing worth doing, stay silent and call no tools`
-          )
-        }
-      }
+      directions.unshift(buildAutonomousTickDirections({
+        startupSelfCheckActive: !!state.startupSelfCheck?.active,
+        awakeningTicks: getAwakeningTicks(),
+        delegationDiscovery: buildDelegationDiscoveryContext() || '',
+      }))
     }
     if (fastUserPath) {
       directions.unshift('Current turn is a real-time external user message. Understand it quickly and reply directly with send_message. If no slow tool is needed, send exactly one final answer and stop. Use heavier tools only when the reply depends on them. During longer execution, send progress only for meaningful new findings or blockers; do not send an acknowledgement and then a near-duplicate final answer.')
@@ -1241,6 +1135,7 @@ async function runTurn(input, label, msg = null) {
       currentCountryCode: geoResult?.location?.country_code || '',
       currentTimezone: geoResult?.location?.timezone || '',
       currentTools: injection.tools || [],
+      hasActiveTask,
       // 编程纪律内化的信号源二/三：task 文本 + 最近动作摘要（TICK 干活轮也能命中）
       currentTaskText: state.task || '',
       recentActionsSummary: (state.recentActions || []).map(a => a?.summary || '').join(' | '),
@@ -1284,7 +1179,11 @@ async function runTurn(input, label, msg = null) {
     const referenceFrame = [msg?.content || input || '', focusTopicWords].filter(Boolean).join(' ')
     const gateResult = selectContextSections(baseContextArgs, {
       referenceFrame,
-      enabled: !state.sectionGateDisabled,
+      // A heartbeat has no user-authored query to serve as a relevance frame.
+      // Feeding "TICK <timestamp> | weekday" into the keyword gate produced
+      // punctuation/time keywords and stripped known people before the model
+      // could judge whether contacting them mattered.
+      enabled: !state.sectionGateDisabled && !isTick,
     })
     emitEvent('context_section_gate', { audit: gateResult.audit, meta: gateResult.meta })
     // 埋点即时可见：门控真正跑过的轮次，打一行全段相关度摘要（measure-only 的分数也看得到，
@@ -1376,6 +1275,10 @@ async function runTurn(input, label, msg = null) {
 
     // 3. Call Jarvis LLM (can be interrupted by a new message)
     const toolContext = buildToolContextForProcess(msg, injection)
+    // Autonomy changes who makes the semantic decision, not the authority
+    // boundary. High-risk tools still require an explicit user-driven turn.
+    toolContext.autonomous = isTick
+    toolContext.allowHighRiskAutonomy = false
     toolContext.strictEvaluation = strictEvaluation
     // 审视分身取证：把本轮正在累积的工具日志数组引用挂进 toolContext。execReviewWork 在循环中途
     // 被调时读它，即可拿到"主 Agent 到此为止实际做了什么"的真实证据（数组按引用传递，调用时已填充）。
@@ -1499,6 +1402,10 @@ async function runTurn(input, label, msg = null) {
       llmResult = { content: '', toolResult: null, aborted: true, delivered: false }
     } else {
       handleLLMFailure(err, label, msg)
+      // runTurn owns provider error reporting so the scheduler never sees this
+      // exception. Preserve heartbeat accounting explicitly: a failed Tick did
+      // not consume cadence or awakening state.
+      if (isTick) markCurrentTickAborted()
       finishTurn()
       return
     }
@@ -1508,7 +1415,7 @@ async function runTurn(input, label, msg = null) {
 
   if (llmResult.aborted) {
     // WeChat-style interruption: discard partial output; the next round will naturally pick up this context from conversationWindow.
-    // Mark this tick as aborted so onTick's finally block skips tick decrement and exploration advance.
+    // Mark this Tick as aborted so cadence/awakening accounting is retried on the next heartbeat.
     console.log('[system] Current processing interrupted by new message — partial output discarded')
     markCurrentTickAborted()
     return
@@ -1585,7 +1492,10 @@ async function runTurn(input, label, msg = null) {
   // 6. Detect [SET_TASK: ...] / [CLEAR_TASK]
   if (markers.setTask !== null) {
     state.task = markers.setTask.trim()
+    state.lastTaskRefreshTick = -10
+    state.taskSteps = []
     setConfig('current_task', state.task)
+    setConfig('current_task_steps', '[]')
     openTaskCommitment(state.task)
     console.log(`[system] Task set: ${state.task}`)
     emitEvent('task_set', { task: state.task })
@@ -1595,8 +1505,9 @@ async function runTurn(input, label, msg = null) {
     console.log(`[system] Task completed: ${clearedTask}`)
     emitEvent('task_cleared', { task: clearedTask })
     state.task = null
-    state.taskIdleTickCount = 0
+    state.taskSteps = []
     setConfig('current_task', '')
+    setConfig('current_task_steps', '[]')
     closeTaskCommitment('done')
     // Write a task_complete memory to prevent old task memories from making Jarvis think the task is still active
     if (clearedTask) {
@@ -1624,19 +1535,6 @@ async function runTurn(input, label, msg = null) {
         saveThreadState(state.threadState)
       }
     } catch {}
-  }
-
-  // Option B: task idle detection — auto-clear after N consecutive ticks with no tool calls
-  if (state.task && isTick) {
-    if (toolCallLog.length === 0) {
-      state.taskIdleTickCount++
-      console.log(`[task] Idle tick count ${state.taskIdleTickCount}/${TASK_IDLE_TICK_LIMIT}`)
-      if (state.taskIdleTickCount >= TASK_IDLE_TICK_LIMIT) {
-        autoCompleteTask(`${TASK_IDLE_TICK_LIMIT} consecutive ticks with no tool calls`)
-      }
-    } else {
-      state.taskIdleTickCount = 0
-    }
   }
 
   // 6. Recognizer: split think block and response body, pass full experience.
@@ -1681,7 +1579,6 @@ const consciousnessLoop = createConsciousnessLoop({
   formatTick,
   consumeTickerTick,
   decrementAwakeningTick,
-  advanceExplorationTask,
   isStartupSelfCheckActive: () => !!state.startupSelfCheck?.active,
   isRunning,
   setScheduler,
@@ -1740,6 +1637,7 @@ async function main() {
       sessionCounter: state.sessionCounter,
       recentActions: (state.recentActions || []).map(item => ({ ...item })),
       thoughtStack: (state.thoughtStack || []).map(item => ({ ...item })),
+      startupSelfCheck: state.startupSelfCheck ? { ...state.startupSelfCheck } : null,
     }),
     onActivated: () => {
       console.log(`[LLM] Activated: ${config.provider} (${config.model})`)

@@ -9,6 +9,8 @@ import { pushMessage } from './inbound-message.js'
 import { popMessage, hasMessages } from './queue.js'
 import { formatTick, nowTimestamp } from './time.js'
 import { parseMarkers } from './runtime/markers.js'
+import { buildLLMMessages } from './runtime/messages.js'
+import { buildAutonomousTickDirections } from './runtime/tick-policy.js'
 
 getDB()
 
@@ -33,17 +35,20 @@ async function process(input, label) {
 
   const injection = await runInjector({ message: input, state })
   const memoriesText = formatMemoriesForPrompt(injection.memories)
-  const directionsText = injection.directions.join('\n')
+  const isTick = /^TICK\s/i.test(String(input || '').trim())
+  const directions = [...(injection.directions || [])]
+  if (isTick) directions.unshift(buildAutonomousTickDirections())
+  const directionsText = directions.join('\n')
   const persona = getConfig('persona') || ''
   const systemPrompt = buildSystemPrompt({ persona })
   const contextBlock = buildContextBlock({ memories: memoriesText, directions: directionsText })
-  // Mirror production shape: round-local context sits in a pre-history runtime
-  // message, while the current user message stays exactly what the user said.
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    ...(contextBlock ? [{ role: 'user', content: `[runtime context]\n${contextBlock}` }] : []),
-    { role: 'user', content: input },
-  ]
+  const messages = buildLLMMessages({
+    systemPrompt,
+    contextBlock,
+    conversationWindow: injection.conversationWindow || [],
+    input,
+    isTick,
+  })
 
   let response
   try {

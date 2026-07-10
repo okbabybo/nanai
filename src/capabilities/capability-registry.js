@@ -12,9 +12,9 @@
 //   声明式单元，让每个能力的关键词、工具、工作流、数据只剩一处。
 //
 // 关键设计：保留「分面解耦」。现有架构故意让 tools / context / prefeed 各有自己的
-//   激活条件（例：热点工具只在 TICK 注入、世界杯工具根本不自动注入、但两者的 prompt
-//   块都随关键词注入）。强行用单一 detect 会把「关键词自动加载工具」加回来——正是先前
-//   特意删掉的。所以每个能力分别声明：
+//   激活条件（例：热点、世界杯工具都不自动注入，但两者的 prompt 块随关键词注入）。
+//   强行用单一 detect 会把「关键词自动加载工具」加回来——正是先前特意删掉的。
+//   所以每个能力分别声明：
 //     - detect(ctx)   领域相关信号 → 控 context 注入 +（默认）tool 注入门
 //     - toolWhen(ctx) tool 自动注入条件（可覆盖 detect；不写则用 detect）
 //     - prefeed(ctx)  运行时数据预喂（自门控，复用现成 build 函数）
@@ -119,9 +119,10 @@ export const CAPABILITIES = [
     summary: '联网搜索、抓取网页正文、读取链接内容（web_search / fetch_url / browser_read）。',
     triggers: WEB_TRIGGERS,
     tools: WEB_TOOLS,
-    // 上网无独立工作流块；工具注入门 = 关键词命中 或 TICK 心跳（与旧 selectTools 一致）。
+    // 上网无独立工作流块。Tick 先由主模型判断，再经 find_tool 按需加载，
+    // 不因为心跳本身预装联网能力。
     detect: (ctx) => hits(ctx.text, WEB_TRIGGERS),
-    toolWhen: (ctx) => hits(ctx.text, WEB_TRIGGERS) || ctx.isTick,
+    toolWhen: (ctx) => hits(ctx.text, WEB_TRIGGERS),
     context: null,
     prefeed: null,
   },
@@ -143,9 +144,8 @@ export const CAPABILITIES = [
     triggers: HOTSPOT_TRIGGERS,
     tools: HOTSPOT_TOOLS,
     detect: (ctx) => HOTSPOT_KEYWORD_RE.test(ctx.rawText || ''),
-    // 工具只在 TICK 广注入（awakening exploration 用）；关键词只递规则块，开不开由 Agent
-    // 经 find_tool 自决——与既定设计一致，不因关键词自动加载工具。
-    toolWhen: (ctx) => !!ctx.isTick,
+    // 面板工具不自动注入；无论用户轮还是 Tick，Agent 判断需要后经 find_tool 装载。
+    toolWhen: () => false,
     context: HOTSPOT_CONTEXT_BLOCK,
     prefeed: (ctx) => buildHotspotRuntimeContext(ctx.rawText || ''),
   },

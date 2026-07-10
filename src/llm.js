@@ -1395,8 +1395,8 @@ export async function callLLM({ systemPrompt, message, messages: inputMessages =
   // 模型产出了可投递的回复文本，但整轮从未真正执行过 send_message（delivered=false），
   // 且本轮要求回复用户（mustReply 且非 silent 信号）。此时由 runtime 代为投递——
   // 关键：走**真正的 send_message 执行器**（executeTool），从而复用 executor 里的
-  //   findRecentJarvisDuplicate 去重 / open_question 检测 / dispatchSocialMessage 社交派发，
-  //   不再像旧的 index.js fallback 那样手工重做副作用却漏掉这些安全检查。
+  //   open_question 检测 / dispatchSocialMessage 社交派发，
+  //   不再像旧的 index.js fallback 那样手工重做副作用却漏掉这些通道逻辑。
   // 硬不变量：
   //   #1 silent 轮绝不投递 —— !silentSignal 守卫。
   //   #4 不双发 —— 仅 !delivered 时触发；一旦投出立刻 delivered=true，index.js 不会再补。

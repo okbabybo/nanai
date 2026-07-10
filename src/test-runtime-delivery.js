@@ -96,12 +96,27 @@ try {
   events = await openEventStream(`${baseUrl}/events`)
   await events.waitFor('connected')
 
+  const blocked = await executeTool('send_message', {
+    target_id: 'ID:000002',
+    content: 'should not be delivered',
+    channel: 'TUI',
+  }, {
+    source: 'test-runtime-delivery',
+    autonomous: true,
+    allowedTargetIds: ['ID:000001'],
+  })
+  assert.match(blocked, /自主心跳无权联系/)
+
   const content = `runtime_delivery_probe_${Date.now()} 中文出站保持一致`
   const result = await executeTool('send_message', {
     target_id: 'ID:000001',
     content,
     channel: 'TUI',
-  }, { source: 'test-runtime-delivery' })
+  }, {
+    source: 'test-runtime-delivery',
+    autonomous: true,
+    allowedTargetIds: ['ID:000001'],
+  })
 
   assert.equal(result, '消息已发送至 ID:000001（TUI）')
 
@@ -126,6 +141,24 @@ try {
   assert.equal(row.channel, 'TUI')
   assert.equal(row.external_party_id, '')
   assert.equal(row.open_question, 0)
+
+  const duplicateResult = await executeTool('send_message', {
+    target_id: 'ID:000001',
+    content,
+    channel: 'TUI',
+  }, {
+    source: 'test-runtime-delivery',
+    autonomous: true,
+    allowedTargetIds: ['ID:000001'],
+  })
+  const duplicate = JSON.parse(duplicateResult)
+  assert.equal(duplicate.ok, false)
+  assert.equal(duplicate.skipped, 'duplicate_outbound_race')
+  const duplicateRows = dbModule.getDB().prepare(`
+    SELECT COUNT(*) AS count FROM conversations
+    WHERE role = 'jarvis' AND to_id = ? AND content = ?
+  `).get('ID:000001', content)
+  assert.equal(duplicateRows.count, 1, 'atomic idempotency prevents duplicate DB/outbound side effects')
 
   console.log('PASS runtime delivery send_message preserves DB and SSE behavior')
 } finally {

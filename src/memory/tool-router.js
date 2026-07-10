@@ -7,9 +7,9 @@
 // 规则要点：
 //   1) 按"动作意图"匹配（动词为主），不复用 keywords.js 的话题抽取
 //   2) ActionLog 保活：最近 10 次工具调用强制注入，保证跨轮连贯
-//   3) TICK 心跳广注入：awakening exploration 阶段 agent 可能突发奇想
+//   3) TICK 心跳保持精简：给自主判断、记忆和节奏控制；其它能力由 find_tool 按判断加载
 //   4) Fallback 安全网：最终工具数 < 8 时补 web + filesystem（最常用兜底）
-//   5) 用户已安装工具永远全注入（marketplace 是用户主动行为）
+//   5) 用户轮保留已安装工具；Tick 通过 find_tool 按判断发现，避免安装等同于永久自治授权
 //   6) 多模态生成工具：mmCaps 已配置 AND 关键词命中才注入，避免太激进
 //
 // 输入 ctx：
@@ -27,9 +27,8 @@
 //
 // 输出：去重后的 tools: string[]
 
-import { getStatus as getTickerStatus } from '../ticker.js'
 // 已迁能力的工具名 + 工具注入选择器由能力注册表提供（单向依赖：registry 不 import 本文件）。
-import { WEB_TOOLS, HOTSPOT_TOOLS, capabilityToolsFor } from '../capabilities/capability-registry.js'
+import { WEB_TOOLS, capabilityToolsFor } from '../capabilities/capability-registry.js'
 import { shouldInjectCapabilityDemo } from '../capability-demo-intent.js'
 
 // ---- 工具分组 ----
@@ -54,8 +53,7 @@ const TASK_CTRL_OPENER  = ['set_task']  // 没任务时只暴露 set_task
 // 无任务的临时成果，靠下面这组触发词 / find_tool 主动拉进来。
 const REVIEW_TOOLS      = ['review_work']
 
-// WEB_TOOLS / HOTSPOT_TOOLS 由能力注册表提供（见顶部 import）——它们既是 web/hotspot 能力的
-// 工具，也被下面的 startup self-check / media / fallback 复用。WORLDCUP_TOOLS /
+// WEB_TOOLS 由能力注册表提供（见顶部 import），并被 media / fallback 复用。WORLDCUP_TOOLS /
 // SOFTWARE_INSTALL_TOOLS 已随能力迁出本文件。
 const FILESYSTEM_TOOLS  = ['read_file', 'write_file', 'delete_file', 'list_dir', 'make_dir']
 const EXEC_TOOLS        = ['exec_command', 'exec_quick_command', 'exec_task_command', 'exec_background_command', 'download_file', 'kill_process', 'list_processes']
@@ -63,14 +61,10 @@ const MEDIA_TOOLS       = ['media_mode', 'music']
 const REMINDER_TOOLS    = ['manage_reminder']
 const PREFETCH_TOOLS    = ['manage_prefetch_task']
 const TICKER_TOOLS      = ['set_tick_interval']
-const STARTUP_SELF_CHECK_TOOLS = [
-  'speak',
-  'complete_startup_self_check',
-  ...FILESYSTEM_TOOLS,
-  ...WEB_TOOLS,
-  ...MEDIA_TOOLS,
-  ...HOTSPOT_TOOLS,
-]
+// Closing the one-time diagnostic is always available. Concrete diagnostic
+// capabilities are intentionally discovered through find_tool after the model
+// decides which checks, if any, are worth running.
+const STARTUP_SELF_CHECK_TOOLS = ['complete_startup_self_check']
 const PERSON_CARD_TOOLS = ['person_card_mode']
 const FOCUS_BANNER_TOOLS = ['focus_banner']
 const TERMINAL_STREAM_TOOLS = ['terminal_stream']
@@ -352,30 +346,20 @@ export function selectTools(ctx = {}) {
     // （这是"找的视频不能播放/找不到视频"的一个隐藏根因）。音乐用不到也无妨。
     for (const t of WEB_TOOLS) out.add(t)
   }
-  if (hits(body, REMINDER_TRIGGERS) || isTick) {
+  if (hits(body, REMINDER_TRIGGERS)) {
     for (const t of REMINDER_TOOLS) out.add(t)
   }
-  if (hits(body, PREFETCH_TRIGGERS) || isTick) {
+  if (hits(body, PREFETCH_TRIGGERS)) {
     for (const t of PREFETCH_TOOLS) out.add(t)
   }
-  // Ticker 跨 turn 抑制：用户消息含 ticker 关键词 → 永远注入(用户在主动调度)。
-  // TICK 心跳路径 → 仅在当前没有生效的 custom interval、或剩余 ttl <= 3 时注入。
-  // 已经设过 120s × 15 轮的话,TICK 路径里模型根本看不到这个工具,自然不会反复调。
-  // ttl <= 3 时重新放开,模型如果想延长当前节奏还有机会。
-  // 被抑制的工具进 suppressed,后续 ActionLog 保活也不会把它捞回来。
-  if (hits(body, TICKER_TRIGGERS)) {
+  // Cadence is part of the model's heartbeat judgment. Keep the control visible
+  // on every Tick instead of hiding it while a previous choice is active;
+  // ticker.js still makes identical repeated settings idempotent.
+  if (hits(body, TICKER_TRIGGERS) || isTick) {
     for (const t of TICKER_TOOLS) out.add(t)
-  } else if (isTick) {
-    const tickerStatus = getTickerStatus()
-    const tickerLocked = tickerStatus.active && tickerStatus.ttl > 3
-    if (!tickerLocked) {
-      for (const t of TICKER_TOOLS) out.add(t)
-    } else {
-      for (const t of TICKER_TOOLS) suppressed.add(t)
-    }
   }
   // —— 能力注册表：已迁能力（web / hotspot / worldcup / software-install）的工具注入 ——
-  // 每个能力用自己的 toolWhen 门（web=关键词|TICK、hotspot=仅 TICK、worldcup=从不自动、
+  // 每个能力用自己的 toolWhen 门（web=关键词、hotspot/worldcup=不自动、
   // software-install=isSoftwareInstallRequest），保留与旧分支等价的解耦语义。
   const capCtx = { text: body, rawText: messageBody, isTick, mmCaps, hasTask }
   for (const t of capabilityToolsFor(capCtx)) out.add(t)
@@ -406,9 +390,9 @@ export function selectTools(ctx = {}) {
   if (hits(body, REVIEW_TRIGGERS)) {
     for (const t of REVIEW_TOOLS) out.add(t)
   }
-  // 注：TICK 路径不主动注入 memory 搜索之外的 search_memory（已在上面处理）。
-  // TICK 时按需求注入：core + web + memory + reminders + prefetch + ticker + hotspot
-  // → 已通过 isTick OR 分支覆盖。filesystem / exec / admin / media 仅靠关键词。
+  // Tick 不再因为"它是 Tick"就预先装载 web/filesystem/reminder/prefetch/hotspot。
+  // 主模型先判断要做什么，再通过常驻 find_tool 加载所需能力。记忆和 cadence
+  // 控制保留在基线中，因为它们直接构成心跳自身的认知与节奏。
 
   // —— 多模态生成：mmCaps gate + 关键词命中 ——
   // 没配能力就别暴露工具（暴露了 agent 也调不通）。
@@ -420,8 +404,7 @@ export function selectTools(ctx = {}) {
   // —— ActionLog 保活 ——
   // 上轮（或最近 10 次）调用过的工具强制带上：跨轮工作流不能因为关键词没命中就断链。
   // 保活只覆盖白龙马的"已知工具"——installed 工具走单独的全注入路径。
-  // 被抑制的工具(如 ticker 跨 turn 抑制下的 set_tick_interval)跳过 —— 否则模型刚调过又被
-  // ActionLog 拉回来,抑制完全失效。
+  // 被抑制的工具跳过，避免 ActionLog 或扩展工具列表把明确撤下的旧工具捞回来。
   if (Array.isArray(recentActionLog)) {
     for (const entry of recentActionLog) {
       const name = entry?.tool
@@ -429,8 +412,10 @@ export function selectTools(ctx = {}) {
     }
   }
 
-  // —— 用户安装的扩展工具：永远全注入（用户主动装的不能省） ——
-  if (Array.isArray(installedToolNames)) {
+  // —— 用户安装的扩展工具 ——
+  // 用户轮保持原有便利；自主 Tick 由 find_tool 按需发现。最近实际用过的扩展仍会由
+  // 上面的 ActionLog 连贯性通道保活，不会打断正在进行的工作流。
+  if (!isTick && Array.isArray(installedToolNames)) {
     for (const name of installedToolNames) {
       if (name && !suppressed.has(name)) out.add(name)
     }
@@ -446,7 +431,7 @@ export function selectTools(ctx = {}) {
   // 目标：避免"消息没传明确意图、agent 啥专业能力都没有"的尴尬。
   // 阈值算法：CORE=7 + 通常 set_task=1 + senderId 带来 search_memory=1 = 9 是常态基线。
   // < 12 大致表示"基线之外几乎没多组专业能力"，此时补两组最常用兜底（web + filesystem）。
-  if (out.size < 12) {
+  if (!isTick && out.size < 12) {
     for (const t of WEB_TOOLS) out.add(t)
     for (const t of FILESYSTEM_TOOLS) out.add(t)
   }

@@ -87,15 +87,16 @@ function ctxReturning(shape) {
 {
   const r = await executeTool('update_task_step', { step_index: 2, status: 'done', note: '' },
     ctxReturning({ progress: '3/3', allTerminal: true, nextIndex: null, nextStep: null, anyFailed: false }))
-  assert(has(r, '所有步骤完成'), 'update(全完成): 收尾文案', r)
-  assert(has(r, '确认每步证据'), 'update(全完成): 收尾前验证引导', r)
+  assert(has(r, '任务仍保持活动'), 'update(全完成): 不由 runtime 自动收尾', r)
+  assert(has(r, '总体目标') && has(r, 'complete_task'), 'update(全完成): 由模型核对并显式决定收尾', r)
 }
 
 {
   const r = await executeTool('update_task_step', { step_index: 2, status: 'done', note: '' },
     ctxReturning({ progress: '2/3', allTerminal: true, nextIndex: null, nextStep: null, anyFailed: true }))
   assert(has(r, '失败/跳过'), 'update(全终态但有失败): 提示缺口', r)
-  assert(has(r, '不要谎称全部完成'), 'update(全终态但有失败): 禁止谎报', r)
+  assert(has(r, '补救') && has(r, '重规划'), 'update(全终态但有失败): 把后续判断交给模型', r)
+  assert(has(r, 'complete_task'), 'update(全终态但有失败): 只允许显式收尾', r)
 }
 
 {

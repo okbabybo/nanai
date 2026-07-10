@@ -40,11 +40,9 @@ function ctx(rawText, isTick = false) {
   assert(has(t, 'web_search') && has(t, 'fetch_url'), `2a) web 关键词 → web 工具 (got: ${t.join(',')})`)
 }
 {
-  // web：TICK 也注入（与旧 selectTools `|| isTick` 一致）
+  // Tick 不因心跳身份自动预装业务能力；需要时由 find_tool 发现。
   const t = capabilityToolsFor(ctx('', true))
-  assert(has(t, 'web_search'), '2b) TICK → web 工具')
-  // hotspot 工具只在 TICK 注入
-  assert(has(t, 'hotspot_mode'), '2b) TICK → hotspot_mode')
+  assert(none(t, ['web_search', 'hotspot_mode']), '2b) TICK → 不自动注入 web/hotspot 工具')
 }
 {
   // hotspot 关键词但非 TICK → 不注入 hotspot 工具（只递规则块，工具靠 find_tool）

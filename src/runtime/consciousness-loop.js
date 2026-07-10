@@ -13,7 +13,6 @@ export function createConsciousnessLoop({
   formatTick,
   consumeTickerTick,
   decrementAwakeningTick,
-  advanceExplorationTask,
   isStartupSelfCheckActive,
   isRunning,
   setScheduler,
@@ -86,7 +85,7 @@ export function createConsciousnessLoop({
     processing = true
     lastTickAborted = false
     let autoTick = false
-    let selfCheckActiveAtStart = false
+    let tickerRevisionAtStart = null
 
     try {
       enqueueDueReminders()
@@ -96,7 +95,7 @@ export function createConsciousnessLoop({
         await runTurnWithWatchdog(msg.raw, `${lane} message from ${msg.fromId}`, msg)
       } else {
         autoTick = true
-        selfCheckActiveAtStart = isStartupSelfCheckActive()
+        tickerRevisionAtStart = getTickerStatus()?.revision ?? null
         const tick = formatTick()
         await runTurnWithWatchdog(tick, 'L2 TICK', null)
       }
@@ -106,16 +105,27 @@ export function createConsciousnessLoop({
       if (err?.name === 'WatchdogTimeoutError') {
         lastTickAborted = true
       } else {
+        // A failed autonomous turn did not consume a meaningful heartbeat.
+        // Preserve cadence/awakening state so the next Tick can retry or make
+        // a different judgment with the error visible in logs.
+        if (autoTick) lastTickAborted = true
         console.error('[onTick] runTurn 抛出未处理异常:', err?.stack || err?.message || err)
       }
     } finally {
       processing = false
-      consumeTickerTick()
-      // When interrupted by the user, do not decrement the tick or advance exploration — retry next heartbeat
-      if (!lastTickAborted) {
+      // Cadence TTL and awakening state describe autonomous heartbeats, not
+      // user/background messages that happen to share this scheduler entry.
+      // A cadence created during this Tick starts governing the *next* Tick;
+      // do not immediately spend one of its requested TTL rounds.
+      const tickerWasReconfigured = autoTick
+        && tickerRevisionAtStart !== null
+        && getTickerStatus()?.revision !== tickerRevisionAtStart
+      if (autoTick && !lastTickAborted && !tickerWasReconfigured) consumeTickerTick()
+      // When interrupted by the user, retry the same awakening moment on the
+      // next heartbeat. There is no runtime-driven exploration index anymore;
+      // deciding what the awakening moment means belongs to the model.
+      if (autoTick && !lastTickAborted) {
         decrementAwakeningTick()
-        // Do not advance exploration index during self-check; exploration begins sequentially after self-check ends
-        if (autoTick && !selfCheckActiveAtStart) advanceExplorationTask()
       }
     }
   }

@@ -831,8 +831,8 @@ function execUpdateTaskStep({ step_index, status, note = '' }, context) {
   // 这是 prompt 之外的第二道引导——不拦截、不扣工具，只用返回值给方向（符合不加硬性限制）。
   if (result?.allTerminal) {
     lines.push(result.anyFailed
-      ? '所有步骤已到终态，但有步骤失败/跳过——任务已自动收尾。先核对失败步骤是否影响总目标，再如实向用户汇报结果与缺口，不要谎称全部完成。'
-      : '所有步骤完成，任务已自动收尾。收尾前确认每步证据都成立，然后用一句话向用户汇报最终结果。')
+      ? '所有步骤已到终态，但任务仍保持活动。请自行判断失败/跳过是否影响总目标：可以补救、重规划、向用户说明缺口，或在你确认任务应当结束时显式调用 complete_task。'
+      : '所有步骤已到终态，但任务仍保持活动。请核对总体目标和每步证据；只有在你判断目标确实达成后，才显式调用 complete_task 收尾。')
   } else if (status === 'failed') {
     lines.push(result?.nextStep
       ? `这一步失败了：不要重试同样的做法——换工具或换思路再试一次；若是缺信息，在 note 里写清缺什么并直接问用户。处理完这步后，下一步是「${result.nextStep}」。`

@@ -157,29 +157,28 @@ ${lines.join('\n')}
 Before invoking, tell the user what you intend to have whom do, and proceed only after confirmation.`
 }
 
-// ── 生成"首次发现 Agent，需要询问用户"的方向指令文本 ─────────────────────
-
-export function buildDelegationAskDirections() {
+// ── 生成一次性的本地 Agent 发现上下文 ─────────────────────────────────────
+//
+// 这里只把环境事实交给主模型，不替它决定是否、何时向用户提起，也不强制发消息。
+// 持久化键沿用历史上的 "asked" 命名，但现在表达的是"该发现已递给模型一次"。
+export function buildDelegationDiscoveryContext() {
   if (hasDelegationBeenAsked()) return null
   const available = getAvailableAgents()
   if (!available.length) {
-    // 无 agent 时也立即 mark：避免每个 idle tick 都注入这段无目的的扫描结果。
+    // 无 agent 时也立即 mark，避免每个 Tick 重复扫描同一事实。
     markDelegationAsked()
-    return `[System scan result] On startup the local environment was scanned; no other AI agents were found (none of Claude Code, Codex, Hermes, OpenClaw detected). You do not need to mention this scan to the user.`
+    return null
   }
 
-  // 关键：注入后立即落盘"已问"——语义是"我们把这条 directions 给过模型了"，
-  //   不是"用户已回复"。原来的实现等 grant_agent_delegation 才翻转，导致用户回复前
-  //   每个 idle tick 这段都会再注入一遍，模型就反复 send_message 同一句话。
+  // 注入后立即落盘，避免模型在后续 Tick 反复收到同一发现。
   markDelegationAsked()
 
   const names = available.map(a => a.name).join('、')
-  return `[New discovery · injected only once this startup] On startup the following AI tools were detected on your computer: ${names}.
-These tools can act as your collaborators to help with complex tasks (e.g. code development, automation workflows).
-Use send_message to ask the user once, naturally: can you direct these collaborators to work for you?
-[Hard constraint] Ask only once. After sending this round, regardless of whether the user replies, do not ask again or nag in later ticks; this directions block will not be injected again, and repeating it is harassment.
-After the user replies:
-- If the user agrees (says "可以" / "好的" / "行", etc.) → call the grant_agent_delegation tool to persist the permission.
-- If the user declines → call grant_agent_delegation with allowed=false to persist it.
-- If the user does not reply for a long time → stay quiet, do not press; weave it in naturally later when the user brings it up themselves.`
+  return `[One-time environment discovery] The following local AI collaborators are available: ${names}. This is context, not a request to contact the user. Decide whether this capability matters to the current situation. Delegating work still requires persisted user authorization through grant_agent_delegation; discovery alone grants no authority.`
+}
+
+// Backward-compatible export for older callers. Semantics are now neutral discovery,
+// not a forced "ask the user" direction.
+export function buildDelegationAskDirections() {
+  return buildDelegationDiscoveryContext()
 }

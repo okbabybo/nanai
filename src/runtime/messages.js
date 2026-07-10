@@ -113,7 +113,7 @@ export function formatTaskSteps(taskSteps = []) {
 
 function buildTickSystemPrompt(systemPrompt, input) {
   return `[heartbeat tick - no new user message]
-This is an internal L2 heartbeat tick, not a user turn. No user is speaking right now. Read the runtime context and conversation history normally; decide whether there is a real reason to act proactively, or stay silent.
+This is an internal L2 heartbeat tick, not a user turn. No user is speaking right now. Read the runtime context and conversation history normally, then independently choose the appropriate outcome; the heartbeat itself does not require action, communication, or silence.
 Tick payload: ${input}
 
 ${systemPrompt}`

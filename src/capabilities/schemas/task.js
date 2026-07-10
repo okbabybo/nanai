@@ -5,12 +5,12 @@ export const taskSchemas = {
     type: 'function',
     function: {
       name: 'set_tick_interval',
-      description: 'Adjust your own thinking rhythm by setting the TICK interval for the next span of time. Use shorter intervals during urgent or important work and longer intervals when idle or reflecting. seconds range [2, 3600], ttl range [1, 50]; out-of-range values are clamped.',
+      description: 'Adjust your own thinking rhythm by setting the TICK interval for the next span of time. Use shorter intervals during urgent or important work and longer intervals when idle or reflecting. seconds range [10, 3600], ttl range [1, 50]; out-of-range values are clamped.',
       parameters: {
         type: 'object',
         properties: {
-          seconds: { type: 'number', description: 'TICK interval in seconds, range [2, 3600].' },
-          ttl: { type: 'number', description: 'Number of turns to keep this rhythm, range [1, 50]. Defaults to 10 and then returns to the default rhythm.' },
+          seconds: { type: 'number', description: 'TICK interval in seconds, range [10, 3600].' },
+          ttl: { type: 'number', description: 'Number of successful autonomous heartbeat ticks to keep this rhythm, range [1, 50]. Defaults to 10 and then returns to the default rhythm. User/background turns and aborted heartbeats do not consume it.' },
           reason: { type: 'string', description: 'Optional short reason for later self-reference.' },
         },
         required: ['seconds']
@@ -78,7 +78,7 @@ export const taskSchemas = {
     type: 'function',
     function: {
       name: 'complete_startup_self_check',
-      description: 'Mark the one-time L2 startup self-check as complete after environment exploration and capability checks have finished. This persists a config flag and memory so the check will not repeat on future startups.',
+      description: 'Close the one-time L2 startup diagnostic when you judge the environment sufficiently understood. There is no mandatory checklist: checks may be performed, skipped, or deemed unnecessary. Persist an honest summary/results object based only on real evidence so the diagnostic does not repeat on future startups.',
       parameters: {
         type: 'object',
         properties: {

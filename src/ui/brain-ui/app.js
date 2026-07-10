@@ -1521,78 +1521,8 @@ function handle({ type, data = {} }) {
       chat.deleteLastUserMsg();
       if (data.service === 'tts' && data.ttsText) playTTSReply(data.ttsText);
       break;
-    case "startup_self_check_started":
-      playJarvisStartupSound();
-      setTimeout(() => playTTSReply("系统启动中，正在运行自检"), 1500);
-      break;
     default:
       break;
-  }
-}
-
-// ── Jarvis-style startup self-check sound ────────────────────────────────────
-function playJarvisStartupSound() {
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === "suspended") ctx.resume();
-    const t = ctx.currentTime;
-
-    // Layer 1: low-frequency mechanical hum (sawtooth, simulates power-on)
-    const drone = ctx.createOscillator();
-    const droneGain = ctx.createGain();
-    const droneFilter = ctx.createBiquadFilter();
-    drone.type = "sawtooth";
-    drone.frequency.setValueAtTime(50, t);
-    drone.frequency.linearRampToValueAtTime(90, t + 0.5);
-    droneFilter.type = "lowpass";
-    droneFilter.frequency.value = 350;
-    droneFilter.Q.value = 3;
-    droneGain.gain.setValueAtTime(0, t);
-    droneGain.gain.linearRampToValueAtTime(0.09, t + 0.06);
-    droneGain.gain.linearRampToValueAtTime(0.06, t + 0.4);
-    droneGain.gain.linearRampToValueAtTime(0, t + 0.65);
-    drone.connect(droneFilter);
-    droneFilter.connect(droneGain);
-    droneGain.connect(ctx.destination);
-    drone.start(t);
-    drone.stop(t + 0.7);
-
-    // Layer 2: system-online frequency sweep (sine, low to high)
-    const sweep = ctx.createOscillator();
-    const sweepGain = ctx.createGain();
-    sweep.type = "sine";
-    sweep.frequency.setValueAtTime(280, t + 0.12);
-    sweep.frequency.exponentialRampToValueAtTime(2800, t + 1.0);
-    sweepGain.gain.setValueAtTime(0, t + 0.12);
-    sweepGain.gain.linearRampToValueAtTime(0.13, t + 0.22);
-    sweepGain.gain.exponentialRampToValueAtTime(0.001, t + 1.05);
-    sweep.connect(sweepGain);
-    sweepGain.connect(ctx.destination);
-    sweep.start(t + 0.12);
-    sweep.stop(t + 1.1);
-
-    // Layer 3: three confirmation beeps (square wave, self-check passed)
-    [[880, 1.15], [1100, 1.28], [1320, 1.41]].forEach(([freq, bt]) => {
-      const beep = ctx.createOscillator();
-      const beepGain = ctx.createGain();
-      const beepFilter = ctx.createBiquadFilter();
-      beep.type = "square";
-      beep.frequency.value = freq;
-      beepFilter.type = "bandpass";
-      beepFilter.frequency.value = freq;
-      beepFilter.Q.value = 8;
-      beepGain.gain.setValueAtTime(0.14, t + bt);
-      beepGain.gain.exponentialRampToValueAtTime(0.001, t + bt + 0.075);
-      beep.connect(beepFilter);
-      beepFilter.connect(beepGain);
-      beepGain.connect(ctx.destination);
-      beep.start(t + bt);
-      beep.stop(t + bt + 0.09);
-    });
-
-    setTimeout(() => ctx.close().catch(() => {}), 2500);
-  } catch (_) {
-    // silently ignore if browser does not support AudioContext
   }
 }
 

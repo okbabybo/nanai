@@ -77,24 +77,37 @@ function hasNone(tools, names) {
   assert(has(tools, 'send_message'), '4) core still present')
 }
 
-// ====== 5) TICK 广注入 ======
+// ====== 5) TICK 精简基线 + 按需发现 ======
 {
   const tools = selectTools({
     messageBody: '',
     isTick: true,
     senderId: null,
   })
-  // 按需求：core + web + memory + reminders + prefetch + hotspot + ticker
+  // Tick 只直接拿判断/记忆/节奏能力；业务能力由 find_tool 按判断装载。
   assert(has(tools, 'send_message'), '5) TICK has core send_message')
+  assert(has(tools, 'find_tool'), '5) TICK has capability discovery')
   assert(has(tools, 'search_memory'), '5) TICK has search_memory')
-  assert(has(tools, 'web_search'), '5) TICK has web_search')
-  assert(has(tools, 'manage_reminder'), '5) TICK has manage_reminder')
-  assert(has(tools, 'manage_prefetch_task'), '5) TICK has manage_prefetch_task')
-  assert(has(tools, 'hotspot_mode'), '5) TICK has hotspot_mode')
   assert(has(tools, 'set_tick_interval'), '5) TICK has set_tick_interval')
-  // 但仍省 exec / admin / media（除非关键词命中）
-  assert(hasNone(tools, ['exec_command', 'install_tool', 'media_mode']),
-    `5) TICK does NOT pull exec/admin/media (got: ${tools.join(',')})`)
+  assert(tools.length === 9, `5) clean TICK baseline stays compact at 9 tools (got ${tools.length}: ${tools.join(',')})`)
+  assert(hasNone(tools, [
+    'web_search', 'read_file', 'manage_reminder', 'manage_prefetch_task',
+    'hotspot_mode', 'exec_command', 'install_tool', 'media_mode',
+  ]), `5) TICK does not pre-decide business capabilities (got: ${tools.join(',')})`)
+}
+
+// ====== 5b) Active-task TICK keeps task controls, not unrelated business schemas ======
+{
+  const tools = selectTools({
+    messageBody: '',
+    isTick: true,
+    senderId: null,
+    hasTask: true,
+  })
+  assert(hasAll(tools, ['complete_task', 'update_task_step', 'review_work', 'focus_banner']),
+    `5b) task TICK keeps explicit task judgment controls (got: ${tools.join(',')})`)
+  assert(hasNone(tools, ['web_search', 'read_file', 'manage_reminder', 'hotspot_mode']),
+    `5b) task TICK still discovers unrelated capabilities on demand (got: ${tools.join(',')})`)
 }
 
 // ====== 6) hasTask=true → 完整 task 控制组 ======
@@ -125,7 +138,7 @@ function hasNone(tools, names) {
     '6b) no task → no complete_task / update_task_step')
 }
 
-// ====== 7) Installed 工具永远全注入 ======
+// ====== 7) Installed 工具：用户轮直给，Tick 按需发现 ======
 {
   const tools = selectTools({
     messageBody: '随便说点啥',
@@ -134,7 +147,17 @@ function hasNone(tools, names) {
     installedToolNames: ['my_custom_tool', 'another_custom'],
   })
   assert(hasAll(tools, ['my_custom_tool', 'another_custom']),
-    `7) installed tools always injected (got: ${tools.join(',')})`)
+    `7) user turn keeps installed tools directly available (got: ${tools.join(',')})`)
+}
+
+{
+  const tools = selectTools({
+    messageBody: '',
+    isTick: true,
+    senderId: null,
+    installedToolNames: ['my_custom_tool'],
+  })
+  assert(!has(tools, 'my_custom_tool'), '7b) installed tool is discoverable, not an implicit Tick autonomy grant')
 }
 
 // ====== 8) 中英混合：media 触发 ======
@@ -202,15 +225,10 @@ function hasNone(tools, names) {
     isTick: true,
     startupSelfCheckActive: true,
   })
-  assert(hasAll(tools, [
-    'speak',
-    'complete_startup_self_check',
-    'read_file',
-    'write_file',
-    'web_search',
-    'media_mode',
-    'hotspot_mode',
-  ]), '11) startupSelfCheckActive → full startup self-check tool set injected')
+  assert(hasAll(tools, ['find_tool', 'complete_startup_self_check']),
+    '11) startupSelfCheckActive → discovery + close control available')
+  assert(hasNone(tools, ['speak', 'read_file', 'write_file', 'web_search', 'media_mode', 'hotspot_mode']),
+    `11) startup self-check does not prescribe concrete tools (got: ${tools.join(',')})`)
 }
 
 // ====== 11b) Worldcup / Hotspot 不再被关键词自动注入 ======
