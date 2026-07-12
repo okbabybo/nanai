@@ -1,8 +1,10 @@
 import { buildHeartbeatSystemPromptPreview } from '../../system-prompt-preview.js'
 import { getHotspots, getHotspotPanelState, setHotspotPanelState } from '../../hotspots.js'
 import { getWorldcup, getWorldcupPanelState, setWorldcupPanelState } from '../../worldcup.js'
+import { getTyphoons, getTyphoonPanelState, setTyphoonPanelState } from '../../typhoon.js'
 import { DOC_TOPICS, getDocPanelState, setDocPanelState } from '../../docs.js'
 import { getPersonCard, getPersonCardPanelState, setPersonCardPanelState } from '../../person-cards.js'
+import { getGeoWeatherSnapshot } from '../../geo-weather.js'
 import { getAgentName } from '../agent.js'
 import { jsonResponse, parseBooleanish, readJsonBody } from '../utils.js'
 
@@ -65,6 +67,33 @@ export async function handlePanelRoutes(req, res, url, { getStateSnapshot = null
         const body = await readJsonBody(req)
         const active = parseBooleanish(body.active)
         const state = setWorldcupPanelState({ active, source: body.source || 'brain-ui' })
+        jsonResponse(res, 200, { ok: true, state })
+      } catch (err) {
+        jsonResponse(res, 400, { ok: false, error: err.message })
+      }
+      return true
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/typhoons') {
+    getTyphoons({
+      force: /^(1|true|yes)$/i.test(url.searchParams.get('refresh') || ''),
+      viewed: /^(1|true|yes)$/i.test(url.searchParams.get('viewed') || ''),
+    })
+      .then((typhoons) => jsonResponse(res, 200, typhoons))
+      .catch((err) => jsonResponse(res, 502, { ok: false, error: err.message, typhoons: [], refreshMinutes: 10 }))
+    return true
+  }
+
+  if (url.pathname === '/typhoon-state') {
+    if (req.method === 'GET') {
+      jsonResponse(res, 200, { ok: true, state: getTyphoonPanelState() })
+      return true
+    }
+    if (req.method === 'POST') {
+      try {
+        const body = await readJsonBody(req)
+        const state = setTyphoonPanelState({ active: parseBooleanish(body.active), source: body.source || 'brain-ui' })
         jsonResponse(res, 200, { ok: true, state })
       } catch (err) {
         jsonResponse(res, 400, { ok: false, error: err.message })
@@ -149,6 +178,16 @@ export async function handlePanelRoutes(req, res, url, { getStateSnapshot = null
 
   if (req.method === 'GET' && url.pathname === '/agent-profile') {
     jsonResponse(res, 200, { name: getAgentName() })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/environment-panel') {
+    jsonResponse(res, 200, {
+      ok: true,
+      agentName: getAgentName(),
+      ...getGeoWeatherSnapshot(),
+      serverTime: new Date().toISOString(),
+    })
     return true
   }
 

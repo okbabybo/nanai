@@ -7,6 +7,7 @@ import { ThoughtStream } from "./thought-stream.js";
 import { initVoicePanel } from "./voice-panel.js";
 import { initHotspot, toggleHotspot, setHotspotMode, moveVoicePanelToBody, restoreVoicePanel } from "./hotspot.js";
 import { initWorldcup, toggleWorldcup, setWorldcupMode } from "./worldcup.js";
+import { initTyphoon, toggleTyphoon, setTyphoonMode } from "./typhoon.js";
 import { enrichVisiblePersonCardFromText, initPersonCard, setPersonCardMode, showPersonCardByName } from "./person-card.js";
 import { initDocPanel, setDocPanelMode } from "./doc.js";
 import { initWechatPopup, showWechatPopup } from "./wechat-popup.js";
@@ -1491,6 +1492,9 @@ function handle({ type, data = {} }) {
     case "worldcup_mode":
       setWorldcupMode(!!data.active || data.action === "show" || data.action === "open", { source: "agent_event" });
       break;
+    case "typhoon_mode":
+      setTyphoonMode(!!data.active || data.action === "show" || data.action === "open", { source: "agent_event" });
+      break;
     case "doc_panel_mode":
       setDocPanelMode(!!data.active || data.action === "open", { topicId: data.topic || null, source: "agent_event" });
       break;
@@ -2076,6 +2080,10 @@ chat = initChat({
       toggleWorldcup();
       return;
     }
+    if (document.body.classList.contains('typhoon-mode') && /关闭|退出|关掉|隐藏/.test(text)) {
+      toggleTyphoon();
+      return;
+    }
     if (document.body.classList.contains('person-card-mode') && /关闭|退出|关掉|隐藏/.test(text)) {
       setPersonCardMode(false, { source: 'chat_input' });
       return;
@@ -2085,6 +2093,9 @@ chat = initChat({
     }
     if (/世界杯/.test(text) && !document.body.classList.contains('worldcup-mode')) {
       toggleWorldcup();
+    }
+    if (/台风|热带气旋/.test(text) && !document.body.classList.contains('typhoon-mode')) {
+      toggleTyphoon();
     }
     const personQuery = extractPersonCardQuery(text);
     if (personQuery) {
@@ -2429,6 +2440,11 @@ function initTTSSettings() {
   const voiceOutputStatus    = document.getElementById("voice-output-status");
   const volcAsrKeyInput      = document.getElementById("voice-volc-apikey");
   const volcAsrKeyToggle     = document.getElementById("voice-volc-apikey-toggle");
+  const mapKeyInput          = document.getElementById("settings-amap-key");
+  const mapSecurityInput     = document.getElementById("settings-amap-security");
+  const saveMapBtn           = document.getElementById("settings-save-map");
+  const clearMapBtn          = document.getElementById("settings-clear-map");
+  const mapFeedback          = document.getElementById("settings-map-feedback");
 
   if (!settingsBtn || !overlay) return;
 
@@ -2451,6 +2467,7 @@ function initTTSSettings() {
       if (tab === "social") loadSocialSettings();
       if (tab === "security") loadSecuritySettings();
       if (tab === "web-search") loadWebSearchSettings();
+      if (tab === "advanced") loadMapSettings();
       if (tab === "update") loadUpdateSettings();
     });
   });
@@ -3077,6 +3094,79 @@ function initTTSSettings() {
     });
   }
 
+  async function loadMapSettings() {
+    const status = document.getElementById("settings-map-status");
+    const dot = document.getElementById("settings-map-status-dot");
+    try {
+      const data = await fetch(`${API}/settings/map`).then(r => r.json());
+      const map = data?.map || {};
+      if (status) {
+        status.textContent = map.configured
+          ? "高德地图 · 已配置"
+          : `高德地图 · Key ${map.keyConfigured ? "已配置" : "未配置"} / 安全密钥 ${map.securityConfigured ? "已配置" : "未配置"}`;
+      }
+      if (dot) {
+        dot.textContent = "●";
+        dot.className = `settings-config-dot ${map.configured ? "active" : "inactive"}`;
+      }
+    } catch {
+      if (status) status.textContent = "读取配置失败";
+      if (dot) dot.className = "settings-config-dot inactive";
+    }
+  }
+
+  if (saveMapBtn) {
+    saveMapBtn.addEventListener("click", async () => {
+      const jsKey = mapKeyInput?.value?.trim() || "";
+      const securityCode = mapSecurityInput?.value?.trim() || "";
+      if (!jsKey && !securityCode) {
+        showFeedback(mapFeedback, "请输入 Key 或安全密钥", true);
+        return;
+      }
+      saveMapBtn.disabled = true;
+      try {
+        const response = await fetch(`${API}/settings/map`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsKey, securityCode }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "保存失败");
+        if (mapKeyInput) mapKeyInput.value = "";
+        if (mapSecurityInput) mapSecurityInput.value = "";
+        showFeedback(mapFeedback, data.map?.configured ? "地图服务已启用" : "已保存，请补全配置");
+        loadMapSettings();
+      } catch (err) {
+        showFeedback(mapFeedback, err.message || "保存失败", true);
+      } finally {
+        saveMapBtn.disabled = false;
+      }
+    });
+  }
+
+  if (clearMapBtn) {
+    clearMapBtn.addEventListener("click", async () => {
+      clearMapBtn.disabled = true;
+      try {
+        const response = await fetch(`${API}/settings/map`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clear: true }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.ok) throw new Error(data.error || "清除失败");
+        if (mapKeyInput) mapKeyInput.value = "";
+        if (mapSecurityInput) mapSecurityInput.value = "";
+        showFeedback(mapFeedback, "地图配置已清除");
+        loadMapSettings();
+      } catch (err) {
+        showFeedback(mapFeedback, err.message || "清除失败", true);
+      } finally {
+        clearMapBtn.disabled = false;
+      }
+    });
+  }
+
   function setVolcAsrKeyVisible(visible) {
     volcAsrKeyVisible = Boolean(visible);
     if (volcAsrKeyInput) volcAsrKeyInput.type = volcAsrKeyVisible ? "text" : "password";
@@ -3682,6 +3772,7 @@ initHotspot().catch((err) => console.warn('[Hotspot] init failed:', err));
 
 // ── Worldcup mode ──
 initWorldcup().catch((err) => console.warn('[Worldcup] init failed:', err));
+initTyphoon();
 
 // ── Media modes (video / image) ──
 (function initMediaModes() {

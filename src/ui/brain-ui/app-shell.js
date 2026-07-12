@@ -1,5 +1,6 @@
 import { createHotspotPanel } from './hotspot-panel.js';
 import { createWorldcupPanel } from './worldcup-panel.js';
+import { createTyphoonPanel } from './typhoon-panel.js';
 import { createPersonCardPanel } from './person-card-panel.js';
 import { createDocPanel } from './doc-panel.js';
 
@@ -178,6 +179,7 @@ const createSettingsModal = () => `
         <button class="settings-nav-item" data-tab="voice" type="button">语音对话</button>
         <button class="settings-nav-item" data-tab="web-search" type="button">上网搜索</button>
         <button class="settings-nav-item" data-tab="security" type="button">安全沙箱</button>
+        <button class="settings-nav-item" data-tab="advanced" type="button">高级功能</button>
         <button class="settings-nav-item" data-tab="update" type="button">更新</button>
       </nav>
 
@@ -740,6 +742,44 @@ const createSettingsModal = () => `
           </div>
         </div>
 
+        <!-- ── 高级功能 tab ── -->
+        <div class="settings-tab" data-tab="advanced">
+          <div class="settings-section">
+            <div class="settings-section-label">地图服务</div>
+            <p class="settings-hint">为台风监测、位置、行程等功能提供统一真实地图。凭证仅保存在本机加密存储中，不会写入项目源码或返回安全密钥明文。</p>
+            <div class="settings-config-row">
+              <span class="settings-config-type">状态</span>
+              <span class="settings-config-info" id="settings-map-status">正在检查…</span>
+              <span class="settings-config-dot" id="settings-map-status-dot"></span>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="settings-map-provider">地图服务商</label>
+              <select class="settings-select" id="settings-map-provider">
+                <option value="amap">高德地图 JS API 2.0</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="settings-amap-key">Web 端 Key</label>
+              <input class="settings-input" id="settings-amap-key" type="password" placeholder="留空保持现有 Key 不变" autocomplete="new-password" spellcheck="false">
+            </div>
+            <div class="settings-row">
+              <label class="settings-label" for="settings-amap-security">安全密钥</label>
+              <input class="settings-input" id="settings-amap-security" type="password" placeholder="securityJsCode，留空保持不变" autocomplete="new-password" spellcheck="false">
+            </div>
+            <p class="settings-hint">请在高德开放平台创建“Web端（JS API）”Key。安全密钥只在本地代理请求中使用，地图页面无法读取其明文。</p>
+            <div class="settings-row-action" style="gap:8px;flex-wrap:wrap;">
+              <button class="settings-save-btn" id="settings-save-map" type="button">保存地图配置</button>
+              <button class="settings-save-btn" id="settings-clear-map" type="button" style="width:auto;padding:0 14px;background:transparent;border:1px solid var(--line);color:var(--ink2);">清除</button>
+              <a href="https://console.amap.com/dev/key/app" target="_blank" rel="noreferrer" class="settings-map-link">申请高德 Key ↗</a>
+              <span class="settings-feedback" id="settings-map-feedback"></span>
+            </div>
+          </div>
+          <div class="settings-section">
+            <div class="settings-section-label">共用范围</div>
+            <p class="settings-hint">配置一次后，台风监测、天气灾害、位置卡片和后续地图页面都会通过统一 MapService 使用同一地图服务。</p>
+          </div>
+        </div>
+
         <!-- ── 更新 tab ── -->
         <div class="settings-tab" data-tab="update">
           <div class="settings-section">
@@ -956,6 +996,7 @@ export function createBrainUiMarkup() {
     createImagePanel(),
     createHotspotPanel(),
     createWorldcupPanel(),
+    createTyphoonPanel(),
     createPersonCardPanel(),
     createDocPanel(),
   ].join("\n\n");

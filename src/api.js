@@ -17,6 +17,7 @@ import { handleAdminRoutes } from './api/routes/admin.js'
 import { handleEmbeddingRoutes } from './api/routes/embedding.js'
 import { handleEventRoutes } from './api/routes/events.js'
 import { handleMediaRoutes } from './api/routes/media.js'
+import { handleMapRoutes } from './api/routes/map.js'
 import { handleMemoryRoutes } from './api/routes/memory.js'
 import { handleMessageRoutes } from './api/routes/message.js'
 import { handlePanelRoutes } from './api/routes/panels.js'
@@ -147,6 +148,7 @@ async function dispatchHttpRoutes(req, res, url, context) {
   if (await handleMemoryRoutes(req, res, url)) return true
   if (await handlePanelRoutes(req, res, url, context)) return true
   if (await handleMediaRoutes(req, res, url)) return true
+  if (await handleMapRoutes(req, res, url, context)) return true
   if (await handleActivationRoutes(req, res, url, context)) return true
   if (await handleSettingsRoutes(req, res, url, context)) return true
   if (await handleEmbeddingRoutes(req, res, url)) return true

@@ -33,6 +33,22 @@ export const uiSchemas = {
     }
   },
 
+  typhoon_mode: {
+    type: 'function',
+    function: {
+      name: 'typhoon_mode',
+      description: 'Control the typhoon monitoring panel. It visualizes live active-typhoon tracks, intensity, wind circles and forecast tracks from the Central Meteorological Observatory. Open it when the user asks to view typhoon paths or monitoring information; close it when asked. status checks current state.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['show', 'open', 'hide', 'close', 'toggle', 'status'], description: 'show/open opens the typhoon panel; hide/close closes it; toggle switches it; status only checks state.' },
+          reason: { type: 'string', description: 'Optional short reason for opening or closing.' },
+        },
+        required: ['action']
+      }
+    }
+  },
+
   hotspot_mode: {
     type: 'function',
     function: {

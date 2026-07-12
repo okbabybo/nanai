@@ -9,6 +9,7 @@ import { streamToolFileWriteExecutionPreview } from '../write-file-preview.js'
 import { setCustomInterval as setTickerInterval, getStatus as getTickerStatus } from '../ticker.js'
 import { setHotspotPanelState, getHotspotPanelState } from '../hotspots.js'
 import { setWorldcupPanelState, getWorldcupPanelState } from '../worldcup.js'
+import { setTyphoonPanelState, getTyphoonPanelState } from '../typhoon.js'
 import { setPersonCardPanelState, getPersonCardPanelState, getPersonCard } from '../person-cards.js'
 import { setDocPanelState, getDocPanelState } from '../docs.js'
 import { setUserLocation } from '../weather.js'
@@ -280,6 +281,8 @@ async function executeToolUnchecked(name, args, context = {}) {
         return execHotspotMode(args)
       case 'worldcup_mode':
         return execWorldcupMode(args)
+      case 'typhoon_mode':
+        return execTyphoonMode(args)
       case 'open_doc_panel':
         return execOpenDocPanel(args)
       case 'person_card_mode':
@@ -678,6 +681,25 @@ function execWorldcupMode(args = {}) {
   }
 
   return JSON.stringify({ ok: true, tool: 'worldcup_mode', state })
+}
+
+function execTyphoonMode(args = {}) {
+  const action = String(args.action || 'status').trim().toLowerCase()
+  if (!['show', 'open', 'hide', 'close', 'toggle', 'status'].includes(action)) {
+    return JSON.stringify({ ok: false, tool: 'typhoon_mode', error: 'unsupported action' })
+  }
+  let nextActive = null
+  if (action === 'show' || action === 'open') nextActive = true
+  if (action === 'hide' || action === 'close') nextActive = false
+  if (action === 'toggle') nextActive = !getTyphoonPanelState().active
+  const state = typeof nextActive === 'boolean'
+    ? setTyphoonPanelState({ active: nextActive, source: 'agent_tool' })
+    : getTyphoonPanelState()
+  if (typeof nextActive === 'boolean') {
+    emitEvent('typhoon_mode', { action: state.active ? 'show' : 'hide', active: state.active, reason: typeof args.reason === 'string' ? args.reason : '' })
+    emitEvent('action', { tool: 'typhoon_mode', summary: state.active ? '打开台风监测面板' : '关闭台风监测面板', detail: args.reason || '' })
+  }
+  return JSON.stringify({ ok: true, tool: 'typhoon_mode', state })
 }
 
 function execOpenDocPanel(args = {}) {

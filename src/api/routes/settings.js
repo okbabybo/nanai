@@ -33,6 +33,7 @@ import { TTS_PROVIDERS, TTS_VOICES } from '../../voice/tts-providers.js'
 import { getAgentName, validateAgentName } from '../agent.js'
 import { jsonResponse, readJsonBody } from '../utils.js'
 import { setConfig } from '../../db.js'
+import { getMapServiceSettings, setMapServiceSettings } from '../../map-service.js'
 
 function checkLocalOrToken(req, res, url, requireLocalOrToken) {
   if (typeof requireLocalOrToken === 'function') return requireLocalOrToken(req, res, url)
@@ -122,6 +123,22 @@ export async function handleSettingsRoutes(req, res, url, { requireLocalOrToken,
       return true
     }
     jsonResponse(res, 200, { ok: true, security: getSecurity(), network: getNetworkConfig() })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/settings/map') {
+    jsonResponse(res, 200, { ok: true, map: getMapServiceSettings() })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/settings/map') {
+    try {
+      const body = await readJsonBody(req)
+      const map = setMapServiceSettings(body)
+      jsonResponse(res, 200, { ok: true, map })
+    } catch (err) {
+      jsonResponse(res, 400, { ok: false, error: err.message })
+    }
     return true
   }
 

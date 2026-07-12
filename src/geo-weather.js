@@ -212,6 +212,42 @@ export function getCountryCode() {
 }
 
 /**
+ * 返回可供本地 UI 使用的脱敏天气快照。
+ * 不包含公网 IP、运营商、精确坐标或完整地址。
+ */
+export function getGeoWeatherSnapshot() {
+  if (!_cached && fs.existsSync(GEO_WEATHER_FILE)) {
+    _cached = safe(() => JSON.parse(fs.readFileSync(GEO_WEATHER_FILE, 'utf8')))
+  }
+
+  const loc = _cached?.location
+  const weather = _cached?.weather
+  return {
+    location: loc ? {
+      city: loc.city || null,
+      district: loc.district || null,
+      region: loc.region || null,
+      country: loc.country || null,
+      countryCode: loc.country_code || null,
+      timezone: loc.timezone || null,
+    } : null,
+    weather: weather ? {
+      temp: weather.temp,
+      feelsLike: weather.feels_like,
+      humidity: weather.humidity,
+      condition: weather.condition || '',
+      windKmh: weather.wind_kmh,
+      windDir: weather.wind_dir || '',
+      uvIndex: weather.uv_index,
+      visibility: weather.visibility,
+      today: weather.today || null,
+      tomorrow: weather.tomorrow || null,
+      fetchedAt: weather.fetched_at || null,
+    } : null,
+  }
+}
+
+/**
  * 返回注入 system prompt 的纯文本块。
  * 必须在 collectGeoWeather() 完成后调用。
  */

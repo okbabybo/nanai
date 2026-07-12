@@ -4385,3 +4385,68 @@ body.worldcup-mode .console > #voice-panel .voice-transcript {
   z-index: 2;
 }
 .wc-exit-btn:hover { color: #eaf2ff; background: rgba(30, 50, 120, 0.8); }
+
+/* ── 台风监测模式：沿用世界杯的全屏大屏/右下聊天交互 ── */
+.typhoon-panel {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: #020b18;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.35s ease;
+}
+
+.settings-map-link {
+  color: var(--cool);
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.settings-map-link:hover { text-decoration: underline; }
+body.typhoon-mode .typhoon-panel { opacity: 1; pointer-events: auto; }
+.typhoon-frame { width: 100%; height: 100%; border: 0; display: block; }
+body.typhoon-mode .console {
+  position: fixed;
+  z-index: 62;
+  right: 28px;
+  bottom: 28px;
+  left: auto;
+  width: min(380px, calc(100vw - 56px));
+  max-height: min(520px, calc(100vh - 170px));
+  background: rgba(5, 18, 37, 0.9);
+  border: 1px solid rgba(95, 207, 255, 0.36);
+  border-radius: 14px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), var(--shadow-inset);
+  backdrop-filter: blur(14px);
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.28s ease, border-radius 0.28s ease;
+}
+body.typhoon-mode .console.ty-collapsed { width: 68px; border-radius: 24px; opacity: 0.85; overflow: hidden; }
+body.typhoon-mode .console.ty-collapsed #chat-history,
+body.typhoon-mode .console.ty-collapsed #paste-attachments,
+body.typhoon-mode .console.ty-collapsed #input-row,
+body.typhoon-mode .console.ty-collapsed > #voice-panel .voice-transcript { display: none; }
+body.typhoon-mode .console.ty-collapsed > #voice-panel { padding: 13px 0; border-bottom: 0; justify-content: center; }
+body.typhoon-mode .console.ty-collapsed:not(:has(#voice-panel))::after {
+  content: '💬';
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 17px 0;
+  font-size: 22px;
+}
+body.typhoon-mode #chat-history.open { max-height: min(420px, calc(100vh - 240px)); }
+body.typhoon-mode #chat-messages { max-height: min(380px, calc(100vh - 280px)); }
+body.typhoon-mode .console > #voice-panel {
+  width: auto; margin: 0; padding: 8px 14px; flex-direction: row; align-items: center; gap: 10px;
+  background: transparent; border-bottom: 1px solid var(--line); animation: none;
+}
+body.typhoon-mode .console > #voice-panel #voice-canvas { width: 40px !important; flex-shrink: 0; }
+body.typhoon-mode .console > #voice-panel .voice-transcript { flex: 1; max-width: none; text-align: left; min-height: 0; }
+.ty-exit-btn {
+  position: absolute; top: 12px; right: 14px; width: 30px; height: 30px; z-index: 2;
+  border: 1px solid rgba(138, 211, 235, 0.48); border-radius: 8px; background: rgba(4, 24, 48, 0.78);
+  color: #a9ddf5; font-size: 17px; line-height: 1; cursor: pointer;
+}
+.ty-exit-btn:hover { color: #effcff; background: rgba(18, 94, 138, 0.88); }
