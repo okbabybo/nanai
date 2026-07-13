@@ -1,6 +1,5 @@
 import http from 'http'
 import fs from 'fs'
-import net from 'net'
 import crypto from 'crypto'
 import { WebSocketServer } from 'ws'
 import { handleSceneConnection, setSceneIntentHandler } from './scene/scene-server.js'
@@ -25,6 +24,15 @@ import { handleSettingsRoutes } from './api/routes/settings.js'
 import { handleSocialRoutes } from './api/routes/social.js'
 import { handleStaticRoutes } from './api/routes/static.js'
 import { handleTTSRoutes } from './api/routes/tts.js'
+import {
+  attachWebSocketIdleTimeout,
+  authorizeWebSocketUpgrade,
+  isLoopbackAddress,
+  isPrivateLanAddress,
+  rejectWebSocketUpgrade,
+  selectWebSocketProtocol,
+  timingSafeTokenEqual,
+} from './api/websocket-security.js'
 
 export { emitEvent }
 
@@ -41,40 +49,8 @@ function isLanAccessEnabled() {
     || /^(1|true|yes|on)$/i.test(String(globalThis.process?.env?.BAILONGMA_ALLOW_LAN || '').trim())
 }
 
-function normalizeRemoteAddress(address = '') {
-  const value = String(address || '').trim().toLowerCase()
-  if (value.startsWith('::ffff:')) return value.slice('::ffff:'.length)
-  return value
-}
-
-function isLoopbackAddress(address = '') {
-  const value = normalizeRemoteAddress(address)
-  return value === '127.0.0.1'
-    || value === '::1'
-    || value === 'localhost'
-}
-
 function isLoopbackRequest(req) {
   return isLoopbackAddress(req.socket?.remoteAddress)
-}
-
-function isPrivateLanAddress(address = '') {
-  const value = normalizeRemoteAddress(address)
-  if (!value) return false
-
-  if (net.isIP(value) === 4) {
-    const [a, b] = value.split('.').map(part => Number(part))
-    return a === 10
-      || (a === 172 && b >= 16 && b <= 31)
-      || (a === 192 && b === 168)
-      || (a === 169 && b === 254)
-  }
-
-  if (net.isIP(value) === 6) {
-    return value.startsWith('fc') || value.startsWith('fd') || value.startsWith('fe80:')
-  }
-
-  return false
 }
 
 function isLanRequest(req) {
@@ -112,7 +88,7 @@ function hasValidAuthToken(req, url) {
   const header = req.headers.authorization || ''
   const bearer = header.match(/^Bearer\s+(.+)$/i)?.[1]?.trim()
   const queryToken = url.searchParams.get('token')
-  return bearer === expected || queryToken === expected
+  return timingSafeTokenEqual(bearer, expected) || timingSafeTokenEqual(queryToken, expected)
 }
 
 function requireLocalOrToken(req, res, url) {
@@ -158,11 +134,23 @@ async function dispatchHttpRoutes(req, res, url, context) {
   return false
 }
 
-function attachCloudASR(server, port) {
-  const cloudWss = new WebSocketServer({ noServer: true })
+function attachCloudASR() {
+  const cloudWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 256 * 1024,
+    handleProtocols: selectWebSocketProtocol,
+  })
   cloudWss.on('connection', (ws) => {
     let session = null
     let configured = false
+    let cleanedUp = false
+    const cleanup = () => {
+      if (cleanedUp) return
+      cleanedUp = true
+      session?.close()
+      session = null
+    }
+    attachWebSocketIdleTimeout(ws, 60 * 1000, cleanup)
 
     ws.on('message', (raw) => {
       if (!configured) {
@@ -200,15 +188,19 @@ function attachCloudASR(server, port) {
       }
     })
 
-    ws.on('close', () => { session?.close(); session = null })
-    ws.on('error', () => { session?.close(); session = null })
+    ws.on('close', cleanup)
+    ws.on('error', cleanup)
   })
 
   return cloudWss
 }
 
 function attachSceneProtocol() {
-  const sceneWss = new WebSocketServer({ noServer: true })
+  const sceneWss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 1024 * 1024,
+    handleProtocols: selectWebSocketProtocol,
+  })
   sceneWss.on('connection', (ws) => handleSceneConnection(ws))
 
   const SCENE_PASSIVE_INTENTS = new Set(['dismiss', 'ended', 'mounted', 'dwell'])
@@ -254,26 +246,25 @@ function attachSceneProtocol() {
 }
 
 function attachWebSocketUpgrades(server, port, { sceneWss, cloudWss }) {
+  const routes = new Map([
+    ['/scene', sceneWss],
+    ['/voice/cloud', cloudWss],
+  ])
+  const knownPaths = new Set(routes.keys())
   server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url, `http://localhost:${port}`)
-    if (url.pathname === '/scene') {
-      const origin = req.headers.origin
-      if (origin && !isAllowedOrigin(origin)) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      if (!hasAllowedAccess(req, url)) {
-        socket.write('HTTP/1.1 403 Forbidden\r\n\r\n')
-        socket.destroy()
-        return
-      }
-      sceneWss.handleUpgrade(req, socket, head, (ws) => sceneWss.emit('connection', ws, req))
-    } else if (url.pathname === '/voice/cloud') {
-      cloudWss.handleUpgrade(req, socket, head, (ws) => cloudWss.emit('connection', ws, req))
-    } else {
-      socket.destroy()
+    let url
+    try { url = new URL(req.url, `http://localhost:${port}`) } catch {
+      return rejectWebSocketUpgrade(socket, 404)
     }
+    const target = routes.get(url.pathname)
+    const auth = authorizeWebSocketUpgrade(req, {
+      pathname: url.pathname,
+      lanEnabled: isLanAccessEnabled(),
+      expectedToken: getAuthToken(),
+      knownPaths,
+    })
+    if (!auth.ok || !target) return rejectWebSocketUpgrade(socket, auth.status)
+    target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req))
   })
 }
 
@@ -357,7 +348,7 @@ export function startAPI(port = 3721, { getStateSnapshot = null, onActivated = n
     }
   })
 
-  const cloudWss = attachCloudASR(server, port)
+  const cloudWss = attachCloudASR()
   const sceneWss = attachSceneProtocol()
   attachWebSocketUpgrades(server, port, { sceneWss, cloudWss })
 
