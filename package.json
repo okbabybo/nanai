@@ -1,8 +1,8 @@
 {
-  "name": "bailongma",
-  "productName": "Bailongma",
+  "name": "nanai",
+  "productName": "奈奈",
   "version": "2.1.515",
-  "description": "A continuously running digital consciousness framework",
+  "description": "奈奈 · 清新治愈的桌面 AI Agent（Fork 自白龙马架构）",
   "type": "module",
   "main": "electron/main.cjs",
   "author": {
@@ -66,7 +66,7 @@
     "playwright": "^1.59.1"
   },
   "build": {
-    "appId": "com.xiaoyuanda.bailongma",
+    "appId": "com.xiaoyuanda.nanai",
     "productName": "Bailongma",
     "artifactName": "${productName}-Setup-${version}.${ext}",
     "npmRebuild": false,
@@ -169,7 +169,7 @@
       {
         "provider": "github",
         "owner": "xiaoyuanda666-ship-it",
-        "repo": "BaiLongma",
+        "repo": "Nanai",
         "releaseType": "release"
       }
     ]

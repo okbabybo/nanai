@@ -12,7 +12,7 @@
 //     不连 LLM），所以一旦 better-sqlite3 能 require 成功就能通过。
 //
 // 跑法：
-//   cd D:\claude\BaiLongma\.claude\worktrees\step-5c
+//   cd D:\claude\Nanai\.claude\worktrees\step-5c
 //   node src/test-focus-persist.js
 //
 // 如果 ABI 不匹配报错，请：

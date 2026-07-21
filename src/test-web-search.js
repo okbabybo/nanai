@@ -1,5 +1,5 @@
 // 独立测试 web_search 工具：直接调真实引擎，不 mock
-// 用法：cd D:\claude\BaiLongma && node src/test-web-search.js
+// 用法：cd D:\claude\Nanai && node src/test-web-search.js
 
 import { executeTool } from './capabilities/executor.js'
 

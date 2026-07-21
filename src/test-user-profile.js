@@ -19,7 +19,7 @@ const profile = buildProfileFromSignals({
     { content: 'Discussed LLM prompt/context/memory architecture.', detail: 'Needs user profile injection.' },
   ],
   conversation: [
-    { content: '我要给 bailongma agent 加入用户画像能力，分析一下怎么做' },
+    { content: '我要给 nanai agent 加入用户画像能力，分析一下怎么做' },
   ],
   actionLog: [
     { tool: 'read_file', summary: 'read src/prompt.js', detail: 'context injection code' },

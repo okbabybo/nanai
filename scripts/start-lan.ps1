@@ -5,8 +5,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$env:BAILONGMA_HOST = '0.0.0.0'
-$env:BAILONGMA_ALLOW_LAN = '1'
+$env:NANAI_HOST = '0.0.0.0'
+$env:NANAI_ALLOW_LAN = '1'
 
 function Test-PrivateLanAddress {
   param([string]$Address)

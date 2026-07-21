@@ -27,11 +27,11 @@ const wakeWord = require('./wake-word.cjs')
 const devLight = require('./dev-board-light.cjs')
 
 const IS_DEV = !app.isPackaged
-const WINDOWS_APP_USER_MODEL_ID = 'com.xiaoyuanda.bailongma'
+const WINDOWS_APP_USER_MODEL_ID = 'com.xiaoyuanda.nanai'
 
 function resolvePortableRoot() {
   if (IS_DEV) return null
-  const requestedRoot = process.env.BAILONGMA_PORTABLE_DIR?.trim()
+  const requestedRoot = process.env.NANAI_PORTABLE_DIR?.trim()
   if (requestedRoot) return path.resolve(requestedRoot)
   const exeDir = path.dirname(process.execPath)
   return fs.existsSync(path.join(exeDir, 'portable.flag')) ? exeDir : null
@@ -43,7 +43,7 @@ const IS_PORTABLE = Boolean(PORTABLE_USER_DIR)
 if (PORTABLE_USER_DIR) {
   try { fs.mkdirSync(PORTABLE_USER_DIR, { recursive: true }) } catch {}
   app.setPath('userData', PORTABLE_USER_DIR)
-  process.env.BAILONGMA_USER_DIR ||= PORTABLE_USER_DIR
+  process.env.NANAI_USER_DIR ||= PORTABLE_USER_DIR
 }
 
 const USER_DIR = app.getPath('userData')
@@ -126,7 +126,7 @@ function emitStartupProgress(update = {}) {
   return cloneStartupProgressState()
 }
 
-global.bailongmaStartupProgress = emitStartupProgress
+global.nanaiStartupProgress = emitStartupProgress
 
 function getAppIconPath({ trayIcon = false } = {}) {
   if (IS_WIN) return path.join(RESOURCE_ROOT, 'build', 'icon.ico')
@@ -228,12 +228,12 @@ function fileImageToDataUrl(filePath) {
   return `data:${imageMimeForPath(filePath)};base64,${bytes.toString('base64')}`
 }
 
-// 持久化日志：把 console.* 镜像到 USER_DIR/logs/bailongma.log，
+// 持久化日志：把 console.* 镜像到 USER_DIR/logs/nanai.log，
 // 安装版没有 stdout 的情况下，卡死/崩溃后还能 tail 这个文件复盘。
 // 简易 rotate：> 5MB 时把当前文件改名 .old（覆盖上一份 .old），下次写入重开。
 const LOG_DIR = path.join(USER_DIR, 'logs')
-const LOG_FILE = path.join(LOG_DIR, 'bailongma.log')
-const LOG_FILE_OLD = path.join(LOG_DIR, 'bailongma.old.log')
+const LOG_FILE = path.join(LOG_DIR, 'nanai.log')
+const LOG_FILE_OLD = path.join(LOG_DIR, 'nanai.old.log')
 const LOG_MAX_BYTES = 5 * 1024 * 1024
 try { fs.mkdirSync(LOG_DIR, { recursive: true }) } catch {}
 function rotateLogIfNeeded() {
@@ -333,7 +333,7 @@ global.focusBannerBridge = focusBannerBridge
 const terminalStreamBridge = new EventEmitter()
 global.terminalStreamBridge = terminalStreamBridge
 global.getBailongmaWindowLayoutSnapshot = getBailongmaWindowLayoutSnapshot
-global.bailongmaAppControl = {
+global.nanaiAppControl = {
   restart() {
     console.log('[main] restart requested')
     app.isQuiting = true
@@ -402,9 +402,9 @@ function validatePackagedNativeModules() {
 }
 
 async function bootstrapBackend(port) {
-  process.env.BAILONGMA_USER_DIR ||= USER_DIR
-  process.env.BAILONGMA_RESOURCES_DIR ||= RESOURCE_ROOT
-  process.env.BAILONGMA_PORT = String(port)
+  process.env.NANAI_USER_DIR ||= USER_DIR
+  process.env.NANAI_RESOURCES_DIR ||= RESOURCE_ROOT
+  process.env.NANAI_PORT = String(port)
   validatePackagedNativeModules()
   await import(pathToFileURL(BACKEND_ENTRY).href)
 }
@@ -702,7 +702,7 @@ focusBannerBridge.on('hide', () => {
 
 // ─── 语音唤醒:隐藏"耳朵"窗口 + 主进程 KWS ───
 // 隐藏窗口常开麦克风 → AudioWorklet 出 16kHz Float32 → IPC → 主进程 KeywordSpotter。
-// 第一步只检测+写日志(USER_DIR/logs/wake-word.log),命中"白龙马"不做其他动作。
+// 第一步只检测+写日志(USER_DIR/logs/wake-word.log),命中"奈奈"不做其他动作。
 const TERMINAL_STREAM_DEFAULT_WIDTH = 560
 const TERMINAL_STREAM_DEFAULT_HEIGHT = 830
 const TERMINAL_STREAM_MIN_WIDTH = 420

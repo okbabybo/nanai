@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-BaiLongma 语音服务
+Nanai 语音服务
 - 流式 ASR：Whisper + VAD，每次停顿触发识别，输出中间/最终结果
 - 场景声音识别：YAMNet（可选，需 tensorflow-hub），识别鼓掌/响指/键盘/脚步等
 """
@@ -355,7 +355,7 @@ class VoiceServer:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="BaiLongma 语音识别服务")
+    parser = argparse.ArgumentParser(description="Nanai 语音识别服务")
     parser.add_argument("--model", default="small",
                         choices=["tiny", "tiny.en", "base", "base.en", "small", "small.en",
                                  "medium", "medium.en", "large", "large-v2", "large-v3", "turbo"],

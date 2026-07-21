@@ -10,7 +10,7 @@ const model = String(seed.model || '').trim() || 'doubao-seedance-2-0-260128'
 const baseURL = String(seed.baseURL || '').trim() || 'https://ark.cn-beijing.volces.com/api/v3'
 
 const imgPath = process.argv[2] || 'src/ui/brain-ui/vendor/earth/earth_atmos_2048.jpg'
-const abs = path.resolve('D:/claude/BaiLongma', imgPath)
+const abs = path.resolve('D:/claude/Nanai', imgPath)
 const bytes = fs.readFileSync(abs)
 const ext = path.extname(abs).slice(1).toLowerCase().replace('jpg', 'jpeg')
 const dataUrl = `data:image/${ext};base64,${bytes.toString('base64')}`

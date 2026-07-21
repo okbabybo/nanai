@@ -15,43 +15,43 @@ Function BailongmaFindForeignInstallRootItem
   ; Returns the first item in $INSTDIR that is not owned by Bailongma.
   ; Result is written to $R3. "0" means the folder is absent, empty, or safe.
   StrCpy $R3 "0"
-  IfFileExists "$INSTDIR\*.*" 0 bailongmaScanInstallRootNoClose
+  IfFileExists "$INSTDIR\*.*" 0 nanaiScanInstallRootNoClose
   FindFirst $R1 $R2 "$INSTDIR\*.*"
-  bailongmaScanInstallRoot:
-    StrCmp $R2 "" bailongmaScanInstallRootDone
-    StrCmp $R2 "." bailongmaScanInstallRootNext
-    StrCmp $R2 ".." bailongmaScanInstallRootNext
-    StrCmp $R2 "Bailongma.exe" bailongmaScanInstallRootNext
-    StrCmp $R2 "Uninstall Bailongma.exe" bailongmaScanInstallRootNext
-    StrCmp $R2 "uninstallerIcon.ico" bailongmaScanInstallRootNext
-    StrCmp $R2 "locales" bailongmaScanInstallRootNext
-    StrCmp $R2 "resources" bailongmaScanInstallRootNext
-    StrCmp $R2 "swiftshader" bailongmaScanInstallRootNext
-    StrCmp $R2 "chrome_100_percent.pak" bailongmaScanInstallRootNext
-    StrCmp $R2 "chrome_200_percent.pak" bailongmaScanInstallRootNext
-    StrCmp $R2 "d3dcompiler_47.dll" bailongmaScanInstallRootNext
-    StrCmp $R2 "ffmpeg.dll" bailongmaScanInstallRootNext
-    StrCmp $R2 "icudtl.dat" bailongmaScanInstallRootNext
-    StrCmp $R2 "libEGL.dll" bailongmaScanInstallRootNext
-    StrCmp $R2 "libGLESv2.dll" bailongmaScanInstallRootNext
-    StrCmp $R2 "LICENSE.electron.txt" bailongmaScanInstallRootNext
-    StrCmp $R2 "LICENSES.chromium.html" bailongmaScanInstallRootNext
-    StrCmp $R2 "resources.pak" bailongmaScanInstallRootNext
-    StrCmp $R2 "snapshot_blob.bin" bailongmaScanInstallRootNext
-    StrCmp $R2 "v8_context_snapshot.bin" bailongmaScanInstallRootNext
-    StrCmp $R2 "vk_swiftshader.dll" bailongmaScanInstallRootNext
-    StrCmp $R2 "vk_swiftshader_icd.json" bailongmaScanInstallRootNext
-    StrCmp $R2 "vulkan-1.dll" bailongmaScanInstallRootNext
+  nanaiScanInstallRoot:
+    StrCmp $R2 "" nanaiScanInstallRootDone
+    StrCmp $R2 "." nanaiScanInstallRootNext
+    StrCmp $R2 ".." nanaiScanInstallRootNext
+    StrCmp $R2 "Bailongma.exe" nanaiScanInstallRootNext
+    StrCmp $R2 "Uninstall Bailongma.exe" nanaiScanInstallRootNext
+    StrCmp $R2 "uninstallerIcon.ico" nanaiScanInstallRootNext
+    StrCmp $R2 "locales" nanaiScanInstallRootNext
+    StrCmp $R2 "resources" nanaiScanInstallRootNext
+    StrCmp $R2 "swiftshader" nanaiScanInstallRootNext
+    StrCmp $R2 "chrome_100_percent.pak" nanaiScanInstallRootNext
+    StrCmp $R2 "chrome_200_percent.pak" nanaiScanInstallRootNext
+    StrCmp $R2 "d3dcompiler_47.dll" nanaiScanInstallRootNext
+    StrCmp $R2 "ffmpeg.dll" nanaiScanInstallRootNext
+    StrCmp $R2 "icudtl.dat" nanaiScanInstallRootNext
+    StrCmp $R2 "libEGL.dll" nanaiScanInstallRootNext
+    StrCmp $R2 "libGLESv2.dll" nanaiScanInstallRootNext
+    StrCmp $R2 "LICENSE.electron.txt" nanaiScanInstallRootNext
+    StrCmp $R2 "LICENSES.chromium.html" nanaiScanInstallRootNext
+    StrCmp $R2 "resources.pak" nanaiScanInstallRootNext
+    StrCmp $R2 "snapshot_blob.bin" nanaiScanInstallRootNext
+    StrCmp $R2 "v8_context_snapshot.bin" nanaiScanInstallRootNext
+    StrCmp $R2 "vk_swiftshader.dll" nanaiScanInstallRootNext
+    StrCmp $R2 "vk_swiftshader_icd.json" nanaiScanInstallRootNext
+    StrCmp $R2 "vulkan-1.dll" nanaiScanInstallRootNext
     StrCpy $R3 "$R2"
-    Goto bailongmaScanInstallRootDone
+    Goto nanaiScanInstallRootDone
 
-  bailongmaScanInstallRootNext:
+  nanaiScanInstallRootNext:
     FindNext $R1 $R2
-    Goto bailongmaScanInstallRoot
+    Goto nanaiScanInstallRoot
 
-  bailongmaScanInstallRootDone:
+  nanaiScanInstallRootDone:
     FindClose $R1
-  bailongmaScanInstallRootNoClose:
+  nanaiScanInstallRootNoClose:
 FunctionEnd
 
 Function BailongmaRescueForeignInstallRootItems
@@ -60,7 +60,7 @@ Function BailongmaRescueForeignInstallRootItems
   ; the upgrade can continue.
   StrCpy $R6 ""
 
-  bailongmaRescueForeignLoop:
+  nanaiRescueForeignLoop:
     Call BailongmaFindForeignInstallRootItem
     ${if} $R3 == "0"
       Return
@@ -71,33 +71,33 @@ Function BailongmaRescueForeignInstallRootItems
       CreateDirectory "$APPDATA\Bailongma\install-root-rescue"
       StrCpy $R8 "1"
 
-      bailongmaPickForeignRescueDir:
+      nanaiPickForeignRescueDir:
         StrCpy $R6 "$APPDATA\Bailongma\install-root-rescue\upgrade-$R8"
-        IfFileExists "$R6\*.*" 0 bailongmaForeignRescueDirReady
+        IfFileExists "$R6\*.*" 0 nanaiForeignRescueDirReady
         IntOp $R8 $R8 + 1
-        IntCmp $R8 1000 bailongmaForeignRescueDirExhausted bailongmaPickForeignRescueDir bailongmaForeignRescueDirExhausted
+        IntCmp $R8 1000 nanaiForeignRescueDirExhausted nanaiPickForeignRescueDir nanaiForeignRescueDirExhausted
 
-      bailongmaForeignRescueDirReady:
+      nanaiForeignRescueDirReady:
         ClearErrors
         CreateDirectory "$R6"
-        IfErrors bailongmaForeignRescueDirFailed
+        IfErrors nanaiForeignRescueDirFailed
     ${endIf}
 
     ClearErrors
     Rename "$INSTDIR\$R3" "$R6\$R3"
-    IfErrors bailongmaForeignRescueMoveFailed
+    IfErrors nanaiForeignRescueMoveFailed
     DetailPrint "Moved non-Bailongma install-root item out of upgrade path: $INSTDIR\$R3 -> $R6\$R3"
-    Goto bailongmaRescueForeignLoop
+    Goto nanaiRescueForeignLoop
 
-  bailongmaForeignRescueDirExhausted:
+  nanaiForeignRescueDirExhausted:
     MessageBox MB_ICONSTOP|MB_OK "Bailongma could not create a unique rescue folder under:$\r$\n$\r$\n$APPDATA\Bailongma\install-root-rescue$\r$\n$\r$\nPlease move non-Bailongma content out of the install folder, then run setup again."
     Abort
 
-  bailongmaForeignRescueDirFailed:
+  nanaiForeignRescueDirFailed:
     MessageBox MB_ICONSTOP|MB_OK "Bailongma could not create a rescue folder:$\r$\n$\r$\n$R6$\r$\n$\r$\nPlease move non-Bailongma content out of the install folder, then run setup again."
     Abort
 
-  bailongmaForeignRescueMoveFailed:
+  nanaiForeignRescueMoveFailed:
     MessageBox MB_ICONSTOP|MB_OK "Bailongma could not move non-Bailongma content out of the install folder:$\r$\n$\r$\n$INSTDIR\$R3$\r$\n$\r$\nTarget rescue folder:$\r$\n$R6$\r$\n$\r$\nPlease close programs that may be using this folder, or move it manually, then run setup again."
     Abort
 FunctionEnd
@@ -124,7 +124,7 @@ Function BailongmaValidateInstallDir
   ${GetRoot} "$INSTDIR" $R4
   ${DriveSpace} "$R4\" "/D=F /S=M" $R5
   ${if} $R5 < 600
-    MessageBox MB_ICONSTOP|MB_OK "目标磁盘可用空间不足，无法安全安装白龙马。$\r$\n$\r$\n所在磁盘：$R4$\r$\n当前可用：$R5 MB$\r$\n至少需要：600 MB$\r$\n$\r$\n请清理磁盘空间，或将白龙马安装到其他磁盘后重试。"
+    MessageBox MB_ICONSTOP|MB_OK "目标磁盘可用空间不足，无法安全安装奈奈。$\r$\n$\r$\n所在磁盘：$R4$\r$\n当前可用：$R5 MB$\r$\n至少需要：600 MB$\r$\n$\r$\n请清理磁盘空间，或将奈奈安装到其他磁盘后重试。"
     Abort
   ${endIf}
 FunctionEnd
@@ -154,19 +154,19 @@ FunctionEnd
 Function BailongmaValidateInstalledPayload
   ; The installer must never report success if the Electron runtime payload is
   ; incomplete. Missing files here produce confusing launch failures later.
-  IfFileExists "$INSTDIR\Bailongma.exe" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\d3dcompiler_47.dll" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\ffmpeg.dll" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\libEGL.dll" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\libGLESv2.dll" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\vk_swiftshader.dll" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\vulkan-1.dll" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\resources\app.asar" 0 bailongmaPayloadMissing
-  IfFileExists "$INSTDIR\resources\app.asar.unpacked\node_modules\better-sqlite3\build\Release\better_sqlite3.node" 0 bailongmaPayloadMissing
+  IfFileExists "$INSTDIR\Bailongma.exe" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\d3dcompiler_47.dll" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\ffmpeg.dll" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\libEGL.dll" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\libGLESv2.dll" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\vk_swiftshader.dll" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\vulkan-1.dll" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\resources\app.asar" 0 nanaiPayloadMissing
+  IfFileExists "$INSTDIR\resources\app.asar.unpacked\node_modules\better-sqlite3\build\Release\better_sqlite3.node" 0 nanaiPayloadMissing
 
   ClearErrors
   FileOpen $R1 "$INSTDIR\Bailongma.exe" r
-  IfErrors bailongmaPayloadMissing
+  IfErrors nanaiPayloadMissing
   FileSeek $R1 0 END $R3
   FileClose $R1
 
@@ -176,12 +176,12 @@ Function BailongmaValidateInstalledPayload
   ; check to a specific Electron version's exact size, which changes on every
   ; Electron bump. A tight threshold near the real size silently rejects valid
   ; installs after an Electron downgrade/optimization.
-  IntCmp $R3 52428800 bailongmaPayloadValid bailongmaPayloadMissing bailongmaPayloadValid
+  IntCmp $R3 52428800 nanaiPayloadValid nanaiPayloadMissing nanaiPayloadValid
 
-  bailongmaPayloadValid:
+  nanaiPayloadValid:
     Return
 
-  bailongmaPayloadMissing:
+  nanaiPayloadMissing:
     MessageBox MB_ICONSTOP|MB_OK "Bailongma installation did not complete correctly. To avoid leaving a broken app on this computer, setup will stop now.$\r$\n$\r$\nPlease close Bailongma and run this installer again. If the problem continues, send this path to support:$\r$\n$INSTDIR"
     Abort
 FunctionEnd
@@ -200,12 +200,12 @@ Function BailongmaRepairAndValidateInstalledPayload
     ; during install. ExecWait would spawn a visible console window each time.
     nsExec::ExecToLog '"$PLUGINSDIR\7za.exe" x -y -aoa "-o$INSTDIR" "$PLUGINSDIR\app-64.7z"'
     Pop $R0
-    Goto bailongmaPackageExtracted
+    Goto nanaiPackageExtracted
   !endif
 
   StrCpy $R0 "no embedded x64 package found"
 
-  bailongmaPackageExtracted:
+  nanaiPackageExtracted:
     SetOutPath "$R9"
     Call BailongmaValidateInstalledPayload
 FunctionEnd
@@ -296,7 +296,7 @@ FunctionEnd
       Abort `Can't safely update Bailongma because "$INSTDIR" contains a busy file.`
     ${endif}
 
-    Goto bailongmaRemoveFilesDone
+    Goto nanaiRemoveFilesDone
   ${endif}
 
   Delete "$INSTDIR\Bailongma.exe"
@@ -395,7 +395,7 @@ FunctionEnd
   ; Only succeeds when the install folder is empty. Never recurse here.
   RMDir "$INSTDIR"
 
-  bailongmaRemoveFilesDone:
+  nanaiRemoveFilesDone:
 !macroend
 
 !macro customUnInstall
@@ -403,7 +403,7 @@ FunctionEnd
   ; 那种情况绝不能删数据，否则更新一次记忆全没——所以只在“真卸载”时弹窗。
   ; /SD IDNO 让静默卸载默认走“保留”，不打扰、不误删。
   ${ifNot} ${isUpdated}
-    MessageBox MB_YESNO|MB_ICONQUESTION "是否同时删除白龙马的全部用户数据？$\r$\n$\r$\n包括：对话与记忆数据库、配置（含 API Key）、沙盒文件、下载的音乐等。$\r$\n$\r$\n选择「是」将彻底清除且无法恢复；选择「否」保留数据，方便以后重装时继续使用。" /SD IDNO IDNO keepUserData
+    MessageBox MB_YESNO|MB_ICONQUESTION "是否同时删除奈奈的全部用户数据？$\r$\n$\r$\n包括：对话与记忆数据库、配置（含 API Key）、沙盒文件、下载的音乐等。$\r$\n$\r$\n选择「是」将彻底清除且无法恢复；选择「否」保留数据，方便以后重装时继续使用。" /SD IDNO IDNO keepUserData
       ; userData 目录 = %APPDATA%\<productName>，即 $APPDATA\Bailongma
       RMDir /r "$APPDATA\Bailongma"
     keepUserData:

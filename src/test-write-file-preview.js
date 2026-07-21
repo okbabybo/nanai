@@ -13,7 +13,7 @@ function contentOf(source) {
   return extractPartialJsonStringValue(source, ['content'])
 }
 
-globalThis.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS = 0
+globalThis.__NANAI_WRITE_PREVIEW_AUTO_CLOSE_MS = 0
 
 {
   const partial = contentOf('{"path":"demo.md","content":"Hello\\nWor')
@@ -207,6 +207,6 @@ globalThis.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS = 0
   assert.strictEqual(getTerminalStreamSnapshot('write_file').closed, true)
 }
 
-delete globalThis.__BAILONGMA_WRITE_PREVIEW_AUTO_CLOSE_MS
+delete globalThis.__NANAI_WRITE_PREVIEW_AUTO_CLOSE_MS
 
 console.log('test-write-file-preview passed')

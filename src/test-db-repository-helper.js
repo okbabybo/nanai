@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 export async function runRepositoryTest(name, test) {
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `bailongma-${name}-`))
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), `nanai-${name}-`))
   const resolvedTempRoot = path.resolve(tempRoot)
   const resolvedOsTemp = path.resolve(os.tmpdir())
 
@@ -11,8 +11,8 @@ export async function runRepositoryTest(name, test) {
     throw new Error(`Refusing to use unsafe temp path: ${resolvedTempRoot}`)
   }
 
-  process.env.BAILONGMA_USER_DIR = resolvedTempRoot
-  process.env.BAILONGMA_RESOURCES_DIR = path.resolve('.')
+  process.env.NANAI_USER_DIR = resolvedTempRoot
+  process.env.NANAI_RESOURCES_DIR = path.resolve('.')
 
   try {
     const connection = await import('./db/connection.js')

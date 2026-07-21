@@ -15,7 +15,7 @@ const createPrimaryPanel = () => `
     <div class="brand-mark"></div>
     <div class="brand-copy">
       <div class="eyebrow">认知界面</div>
-      <div class="brand-title" id="agent-brand-name">Longma AI Agent</div>
+      <div class="brand-title" id="agent-brand-name">奈奈 · Nanai AI Agent</div>
     </div>
     <button class="voice-btn" id="voice-btn" title="麦克风 开/关" type="button">🎤</button>
     <button class="video-btn" id="video-btn" title="视频模式 (V)" type="button" hidden>⊞</button>
@@ -717,7 +717,7 @@ const createSettingsModal = () => `
           </div>
           <div class="settings-section">
             <div class="settings-section-label">局域网访问</div>
-            <p class="settings-hint">允许同一局域网内的设备访问本机白龙马 API，用于多台白龙马互相通信。开启或关闭后需要重启应用生效。</p>
+            <p class="settings-hint">允许同一局域网内的设备访问本机奈奈 API，用于多台奈奈互相通信。开启或关闭后需要重启应用生效。</p>
             <div class="settings-row">
               <label class="settings-label" for="security-lan-access">允许局域网访问</label>
               <label class="settings-toggle">

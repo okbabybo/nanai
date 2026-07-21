@@ -6,7 +6,7 @@
 
 ## 适用范围
 
-- 项目根目录：`/Users/xyf/code/bailongma`
+- 项目根目录：`/Users/xyf/code/nanai`
 - Electron 入口：`electron/main.cjs`
 - 运行时路径抽象：`src/paths.js`
 - macOS 语音 helper 源码：`src/voice/macos-speech.swift`
@@ -201,11 +201,11 @@ npm run start:backend
 npm run dev
 ```
 
-开发模式下，如果没有设置 `BAILONGMA_USER_DIR`，`src/paths.js` 会默认把可写数据路径指向仓库根目录。打包后的 Electron 应用中，`electron/main.cjs` 会注入：
+开发模式下，如果没有设置 `NANAI_USER_DIR`，`src/paths.js` 会默认把可写数据路径指向仓库根目录。打包后的 Electron 应用中，`electron/main.cjs` 会注入：
 
 ```text
-BAILONGMA_USER_DIR=<Electron app.getPath('userData')>
-BAILONGMA_RESOURCES_DIR=<Electron app.getAppPath()>
+NANAI_USER_DIR=<Electron app.getPath('userData')>
+NANAI_RESOURCES_DIR=<Electron app.getAppPath()>
 ```
 
 在 macOS 上，打包应用的用户数据路径通常是：
@@ -481,7 +481,7 @@ voice/
 sandbox/
 skills/
 music/
-logs/bailongma.log
+logs/nanai.log
 ```
 
 不要把删除该目录作为构建排障步骤。更新或重装 app bundle 不应要求清空用户数据。
@@ -489,7 +489,7 @@ logs/bailongma.log
 查看启动日志：
 
 ```bash
-tail -n 200 "$HOME/Library/Application Support/Bailongma/logs/bailongma.log"
+tail -n 200 "$HOME/Library/Application Support/Bailongma/logs/nanai.log"
 ```
 
 不要把配置文件中的密钥粘贴到 bug 报告中。

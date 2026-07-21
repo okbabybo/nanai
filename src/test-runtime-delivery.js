@@ -5,9 +5,9 @@ import path from 'node:path'
 import { once } from 'node:events'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'blm-runtime-delivery-'))
-process.env.BAILONGMA_USER_DIR = tmp
-process.env.BAILONGMA_RESOURCES_DIR = process.cwd()
-process.env.BAILONGMA_HOST = '127.0.0.1'
+process.env.NANAI_USER_DIR = tmp
+process.env.NANAI_RESOURCES_DIR = process.cwd()
+process.env.NANAI_HOST = '127.0.0.1'
 
 async function openEventStream(url) {
   const controller = new AbortController()

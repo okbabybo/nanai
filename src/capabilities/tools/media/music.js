@@ -18,7 +18,7 @@ const IS_WIN = process.platform === 'win32'
 const MUSIC_AUDIO_EXTS = new Set(['.mp3', '.flac', '.wav', '.aac', '.ogg', '.m4a', '.opus'])
 
 async function fetchLrcFromNet(title, artist) {
-  const headers = { 'User-Agent': 'BaiLongma/1.0' }
+  const headers = { 'User-Agent': 'Nanai/1.0' }
   // 策略1：精确匹配（title + artist）
   try {
     const params = new URLSearchParams({ track_name: title })
@@ -304,7 +304,7 @@ async function fetchYoutubeWatchUrls(query) {
     const res = await fetch(`https://www.youtube.com/results?${params}`, {
       signal: AbortSignal.timeout(12000),
       headers: {
-        'User-Agent': 'Mozilla/5.0 BaiLongma/1.0',
+        'User-Agent': 'Mozilla/5.0 Nanai/1.0',
         'Accept-Language': 'en-US,en;q=0.9,zh-CN;q=0.8',
       },
     })
@@ -327,7 +327,7 @@ async function fetchBilibiliVideoUrls(query) {
     const res = await fetch(`https://api.bilibili.com/x/web-interface/search/type?${params}`, {
       signal: AbortSignal.timeout(12000),
       headers: {
-        'User-Agent': 'Mozilla/5.0 BaiLongma/1.0',
+        'User-Agent': 'Mozilla/5.0 Nanai/1.0',
         Referer: 'https://search.bilibili.com/',
       },
     })

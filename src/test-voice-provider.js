@@ -4,8 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'blm-voice-provider-'))
-process.env.BAILONGMA_USER_DIR = tmp
-process.env.BAILONGMA_RESOURCES_DIR = process.cwd()
+process.env.NANAI_USER_DIR = tmp
+process.env.NANAI_RESOURCES_DIR = process.cwd()
 
 try {
   const configFile = path.join(tmp, 'config.json')

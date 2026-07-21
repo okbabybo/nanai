@@ -2,8 +2,8 @@
 // 而 HTML/静态资源要从应用目录（只读 / asar 内）读。
 //
 // Electron 主进程启动时会通过环境变量注入这两个路径：
-//   BAILONGMA_USER_DIR       - 用户数据目录（可写，存 DB、sandbox、配置）
-//   BAILONGMA_RESOURCES_DIR  - 只读资源目录（存 HTML、UI 资源）
+//   NANAI_USER_DIR       - 用户数据目录（可写，存 DB、sandbox、配置）
+//   NANAI_RESOURCES_DIR  - 只读资源目录（存 HTML、UI 资源）
 //
 // 开发模式（直接 node src/index.js）下两者都默认到仓库根目录，行为不变。
 
@@ -14,12 +14,12 @@ import { fileURLToPath } from 'url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..')
 
-const USER_DIR = process.env.BAILONGMA_USER_DIR
-  ? path.resolve(process.env.BAILONGMA_USER_DIR)
+const USER_DIR = process.env.NANAI_USER_DIR
+  ? path.resolve(process.env.NANAI_USER_DIR)
   : REPO_ROOT
 
-const RESOURCES_DIR = process.env.BAILONGMA_RESOURCES_DIR
-  ? path.resolve(process.env.BAILONGMA_RESOURCES_DIR)
+const RESOURCES_DIR = process.env.NANAI_RESOURCES_DIR
+  ? path.resolve(process.env.NANAI_RESOURCES_DIR)
   : REPO_ROOT
 
 function ensureDir(dir) {
@@ -145,14 +145,14 @@ export function rescueDataFromInstallDir() {
   // (for example AppData\Local\Programs or D:\Software), scanning and moving
   // "unknown" directories would touch other applications. Only rescue from a
   // dedicated Bailongma install folder.
-  if (path.basename(installDir).toLowerCase() !== 'bailongma') {
+  if (path.basename(installDir).toLowerCase() !== 'nanai') {
     console.warn(`[paths] skip install-dir rescue from unsafe shared folder: ${installDir}`)
     return rescued
   }
 
   // sandbox 必须在安装目录之外，否则迁过去等于没迁
   if (isPathInside(installDir, paths.sandboxDir)) {
-    console.warn('[paths] 警告：sandbox 目录位于安装目录内，更新时会被清空，请检查 BAILONGMA_USER_DIR 配置')
+    console.warn('[paths] 警告：sandbox 目录位于安装目录内，更新时会被清空，请检查 NANAI_USER_DIR 配置')
     return rescued
   }
   if (!isInstallDirSafeToScan(installDir)) return rescued

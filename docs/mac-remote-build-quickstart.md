@@ -29,8 +29,8 @@ xcode-select --install
 ## 2. 拉取代码
 
 ```bash
-git clone <repo-url> bailongma
-cd bailongma
+git clone <repo-url> nanai
+cd nanai
 git status --short --branch
 git log -1 --oneline
 ```

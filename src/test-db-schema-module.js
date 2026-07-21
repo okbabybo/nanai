@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
-const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'bailongma-db-schema-'))
+const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'nanai-db-schema-'))
 const resolvedTempRoot = path.resolve(tempRoot)
 const resolvedOsTemp = path.resolve(os.tmpdir())
 
@@ -12,8 +12,8 @@ assert.ok(
   `Refusing to use unsafe temp path: ${resolvedTempRoot}`,
 )
 
-process.env.BAILONGMA_USER_DIR = resolvedTempRoot
-process.env.BAILONGMA_RESOURCES_DIR = path.resolve('.')
+process.env.NANAI_USER_DIR = resolvedTempRoot
+process.env.NANAI_RESOURCES_DIR = path.resolve('.')
 
 let closeDBForTest = () => {}
 try {
