@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>奈奈 Logo 资源 · Brand Assets</title>
+  <meta name="description" content="奈奈（Nanai）官方品牌资产：Logo、App Icon、Favicon 全套下载。薄荷绿 + 奶茶色，清新治愈。">
+  <link rel="icon" type="image/png" sizes="32x32" href="/site-assets/nanai-favicon-32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="/site-assets/nanai-favicon-64.png">
+  <link rel="shortcut icon" href="/site-assets/nanai-favicon.ico">
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f5f1ea;
+      --paper-warm: #ede6da;
+      --ink: #2d3d34;
+      --soft-ink: #5a6b62;
+      --muted: #8a9890;
+      --line: rgba(45, 61, 52, 0.12);
+      --mint: #7fb89e;
+      --mint-deep: #5a9b80;
+      --tea: #d4a574;
+      --tea-deep: #b88a5c;
+      --gold: #c7993a;
+      --shadow: 0 18px 50px rgba(70, 90, 75, 0.10);
+      --max: 1080px;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Inter", "Helvetica Neue", sans-serif;
+      background: linear-gradient(180deg, #f5f1ea 0%, #ede6da 100%);
+      color: var(--ink);
+      line-height: 1.65;
+    }
+    .wrap { max-width: var(--max); margin: 0 auto; padding: 48px 24px 80px; }
+    .topbar {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 48px; padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+    }
+    .brand {
+      display: flex; align-items: center; gap: 12px;
+      text-decoration: none; color: var(--ink);
+    }
+    .brand img {
+      width: 48px; height: 48px; border-radius: 12px;
+    }
+    .brand-text { display: flex; flex-direction: column; }
+    .brand-name { font-size: 18px; font-weight: 600; letter-spacing: 0.04em; }
+    .brand-sub { font-size: 12px; color: var(--muted); letter-spacing: 0.05em; }
+    .back-link {
+      font-size: 14px; color: var(--soft-ink); text-decoration: none;
+      padding: 8px 16px; border: 1px solid var(--line); border-radius: 999px;
+      transition: all 0.2s;
+    }
+    .back-link:hover { background: rgba(127, 184, 158, 0.1); border-color: var(--mint); color: var(--mint-deep); }
+
+    .hero-text {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+    .hero-text h1 {
+      font-size: clamp(32px, 5vw, 48px);
+      margin: 0 0 16px;
+      color: var(--ink);
+      letter-spacing: -0.02em;
+    }
+    .hero-text h1::after {
+      content: ""; display: block; width: 60px; height: 4px;
+      background: linear-gradient(90deg, var(--mint), var(--tea));
+      margin: 16px auto 0; border-radius: 2px;
+    }
+    .hero-text p {
+      max-width: 640px; margin: 0 auto;
+      color: var(--soft-ink); font-size: 16px;
+    }
+
+    /* Color tokens */
+    .palette {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 16px; margin: 40px 0 64px;
+    }
+    .swatch {
+      padding: 28px;
+      border-radius: var(--radius);
+      background: var(--paper-warm);
+      box-shadow: var(--shadow);
+      text-align: left;
+    }
+    .swatch-color {
+      height: 96px; border-radius: 10px; margin-bottom: 16px;
+      box-shadow: inset 0 0 0 1px rgba(0,0,0,0.04);
+    }
+    .swatch-name { font-size: 14px; font-weight: 600; color: var(--ink); }
+    .swatch-hex { font-size: 13px; color: var(--soft-ink); font-family: ui-monospace, "SF Mono", Menlo, monospace; margin-top: 2px; }
+    .swatch-use { font-size: 12px; color: var(--muted); margin-top: 8px; }
+
+    /* Asset sections */
+    section.asset-block { margin-bottom: 56px; }
+    section.asset-block h2 {
+      font-size: 22px; margin: 0 0 8px; color: var(--ink);
+      display: flex; align-items: center; gap: 12px;
+    }
+    section.asset-block h2 .badge {
+      font-size: 11px; padding: 3px 10px;
+      background: var(--mint); color: white; border-radius: 999px;
+      letter-spacing: 0.05em; font-weight: 500;
+    }
+    section.asset-block .desc { color: var(--soft-ink); margin: 0 0 24px; font-size: 15px; }
+
+    .asset-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 20px;
+    }
+    .asset-card {
+      background: var(--paper);
+      border-radius: var(--radius);
+      padding: 20px;
+      box-shadow: var(--shadow);
+      display: flex; flex-direction: column; align-items: center;
+      transition: transform 0.2s;
+    }
+    .asset-card:hover { transform: translateY(-3px); }
+    .asset-preview {
+      width: 100%; aspect-ratio: 1; display: flex; align-items: center;
+      justify-content: center; margin-bottom: 14px;
+      background: var(--paper-warm); border-radius: 10px;
+      overflow: hidden;
+    }
+    .asset-preview img { max-width: 80%; max-height: 80%; }
+    .asset-preview.bg-light { background: #ffffff; }
+    .asset-preview.bg-dark { background: #2d3d34; }
+    .asset-name {
+      font-size: 13px; font-weight: 600; color: var(--ink);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+    .asset-meta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+    .asset-dl {
+      margin-top: 12px; padding: 6px 14px;
+      background: var(--mint); color: white;
+      border-radius: 6px; text-decoration: none;
+      font-size: 12px; transition: background 0.2s;
+    }
+    .asset-dl:hover { background: var(--mint-deep); }
+
+    /* Main logo showcase */
+    .logo-showcase {
+      background: var(--paper);
+      border-radius: 20px;
+      padding: 48px;
+      box-shadow: var(--shadow);
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 48px; align-items: center;
+      margin-bottom: 64px;
+    }
+    .logo-showcase-img {
+      aspect-ratio: 1;
+      background: linear-gradient(135deg, #e8f5e9 0%, #d4e9d8 100%);
+      border-radius: 16px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 16px 40px rgba(70, 90, 75, 0.18);
+    }
+    .logo-showcase-img img { width: 85%; height: 85%; object-fit: contain; }
+    .logo-showcase-text h2 { font-size: 28px; margin: 0 0 12px; }
+    .logo-showcase-text p { color: var(--soft-ink); font-size: 15px; margin: 0 0 16px; }
+    .logo-meta { font-size: 13px; color: var(--muted); line-height: 1.8; }
+
+    .cta-row {
+      text-align: center; padding: 40px 24px;
+      background: var(--paper); border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .cta-row a {
+      display: inline-block; margin: 8px;
+      padding: 12px 28px; border-radius: 999px;
+      text-decoration: none; font-size: 14px; font-weight: 500;
+      transition: all 0.2s;
+    }
+    .cta-primary {
+      background: var(--mint); color: white;
+    }
+    .cta-primary:hover { background: var(--mint-deep); }
+    .cta-secondary {
+      background: transparent; color: var(--ink); border: 1px solid var(--line);
+    }
+    .cta-secondary:hover { border-color: var(--mint); color: var(--mint-deep); }
+
+    footer {
+      margin-top: 80px; padding-top: 32px;
+      border-top: 1px solid var(--line);
+      text-align: center; color: var(--muted); font-size: 13px;
+    }
+    footer a { color: var(--soft-ink); text-decoration: none; }
+    footer a:hover { color: var(--mint-deep); }
+
+    @media (max-width: 720px) {
+      .palette { grid-template-columns: 1fr; }
+      .logo-showcase { grid-template-columns: 1fr; padding: 32px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <!-- Top bar -->
+    <div class="topbar">
+      <a href="./index.html" class="brand">
+        <img src="/site-assets/nanai-favicon-128.png" alt="奈奈">
+        <span class="brand-text">
+          <span class="brand-name">奈奈 · Nanai</span>
+          <span class="brand-sub">Brand Assets · 品牌资产</span>
+        </span>
+      </a>
+      <a href="./index.html" class="back-link">← 返回首页</a>
+    </div>
+
+    <!-- Hero -->
+    <div class="hero-text">
+      <h1>奈奈品牌资源包</h1>
+      <p>清新治愈风格的 Logo、App Icon、Favicon 全套。<br>
+      薄荷绿 + 奶茶色 + 米白——为你的桌面 AI 伙伴而生。</p>
+    </div>
+
+    <!-- Main logo showcase -->
+    <div class="logo-showcase">
+      <div class="logo-showcase-img">
+        <img src="/site-assets/nanai-hero-large.png" alt="奈奈主视觉">
+      </div>
+      <div class="logo-showcase-text">
+        <h2>主视觉 · Hero Logo</h2>
+        <p>正面头像特写：薄荷绿长发 + 闭眼微笑 + 头顶小红花。<br>
+        适合官网 Hero、社交媒体头像、桌面壁纸。</p>
+        <div class="logo-meta">
+          📦 nanai-hero-large.png<br>
+          📐 1024 × 1024 px<br>
+          🎨 主色：薄荷绿 #7FB89E · 奶茶 #D4A574<br>
+          💾 格式：PNG · 100 KB
+        </div>
+      </div>
+    </div>
+
+    <!-- Color palette -->
+    <h2 style="font-size: 22px; margin-bottom: 8px;">🎨 品牌色板</h2>
+    <p style="color: var(--soft-ink); margin: 0 0 24px;">三色体系，治愈系产品标配。</p>
+    <div class="palette">
+      <div class="swatch">
+        <div class="swatch-color" style="background: #7FB89E;"></div>
+        <div class="swatch-name">薄荷绿 Mint</div>
+        <div class="swatch-hex">#7FB89E</div>
+        <div class="swatch-use">主色 · 按钮 / 链接 / 强调</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: #D4A574;"></div>
+        <div class="swatch-name">奶茶色 Tea</div>
+        <div class="swatch-hex">#D4A574</div>
+        <div class="swatch-use">辅色 · 提示 / 高亮 / 装饰</div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background: #F5F1EA; border: 1px solid rgba(45,61,52,0.08);"></div>
+        <div class="swatch-name">米白 Cream</div>
+        <div class="swatch-hex">#F5F1EA</div>
+        <div class="swatch-use">底色 · 背景 / 卡片 / 留白</div>
+      </div>
+    </div>
+
+    <!-- App Icon set -->
+    <section class="asset-block">
+      <h2>📱 App Icon 套件 <span class="badge">桌面应用</span></h2>
+      <p class="desc">桌面应用启动图标，多尺寸适配。圆形外框，柔光米白底色。</p>
+      <div class="asset-grid">
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-appicon-512.png" alt=""></div>
+          <div class="asset-name">nanai-appicon-512.png</div>
+          <div class="asset-meta">512 × 512 · Windows / Linux / macOS</div>
+          <a href="/site-assets/nanai-appicon-512.png" download class="asset-dl">下载</a>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-appicon-256.png" alt=""></div>
+          <div class="asset-name">nanai-appicon-256.png</div>
+          <div class="asset-meta">256 × 256 · 中尺寸</div>
+          <a href="/site-assets/nanai-appicon-256.png" download class="asset-dl">下载</a>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-appicon-128.png" alt=""></div>
+          <div class="asset-name">nanai-appicon-128.png</div>
+          <div class="asset-meta">128 × 128 · 任务栏</div>
+          <a href="/site-assets/nanai-appicon-128.png" download class="asset-dl">下载</a>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-appicon-64.png" alt=""></div>
+          <div class="asset-name">nanai-appicon-64.png</div>
+          <div class="asset-meta">64 × 64 · 托盘</div>
+          <a href="/site-assets/nanai-appicon-64.png" download class="asset-dl">下载</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Favicon set -->
+    <section class="asset-block">
+      <h2>🍃 Favicon 套件 <span class="badge">浏览器</span></h2>
+      <p class="desc">极简薄荷猫头剪影，最适合小尺寸显示。浏览器标签页 / 书签 / 收藏夹图标。</p>
+      <div class="asset-grid">
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-favicon-256.png" alt=""></div>
+          <div class="asset-name">nanai-favicon-256.png</div>
+          <div class="asset-meta">256 × 256 · PWA / 高清</div>
+          <a href="/site-assets/nanai-favicon-256.png" download class="asset-dl">下载</a>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-favicon-128.png" alt=""></div>
+          <div class="asset-name">nanai-favicon-128.png</div>
+          <div class="asset-meta">128 × 128 · 标准</div>
+          <a href="/site-assets/nanai-favicon-128.png" download class="asset-dl">下载</a>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-favicon-64.png" alt=""></div>
+          <div class="asset-name">nanai-favicon-64.png</div>
+          <div class="asset-meta">64 × 64 · 标签页</div>
+          <a href="/site-assets/nanai-favicon-64.png" download class="asset-dl">下载</a>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-favicon-32.png" alt=""></div>
+          <div class="asset-name">nanai-favicon-32.png</div>
+          <div class="asset-meta">32 × 32 · 经典</div>
+          <a href="/site-assets/nanai-favicon-32.png" download class="asset-dl">下载</a>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-favicon.ico" alt=""></div>
+          <div class="asset-name">nanai-favicon.ico</div>
+          <div class="asset-meta">16/32/48/64 多尺寸 · 浏览器传统格式</div>
+          <a href="/site-assets/nanai-favicon.ico" download class="asset-dl">下载</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Dark background preview -->
+    <section class="asset-block">
+      <h2>🌙 暗色背景测试</h2>
+      <p class="desc">Logo 在暗色背景下的识别度（深色模式适配参考）。</p>
+      <div class="asset-grid">
+        <div class="asset-card">
+          <div class="asset-preview bg-dark"><img src="/site-assets/nanai-appicon-256.png" alt="" style="filter: brightness(1.1);"></div>
+          <div class="asset-name">App Icon · 深色模式</div>
+          <div class="asset-meta">薄荷绿底色自然适配深色背景</div>
+        </div>
+        <div class="asset-card">
+          <div class="asset-preview bg-dark"><img src="/site-assets/nanai-favicon-128.png" alt="" style="filter: brightness(1.2);"></div>
+          <div class="asset-name">Favicon · 深色模式</div>
+          <div class="asset-meta">圆形轮廓在暗色下清晰可辨</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <div class="cta-row">
+      <p style="margin: 0 0 20px; color: var(--soft-ink);">想用奈奈做你的私人 AI 伙伴？</p>
+      <a href="https://github.com/okbabybo/nanai" class="cta-primary" target="_blank">⭐ Star on GitHub</a>
+      <a href="./index.html" class="cta-secondary">回到首页</a>
+    </div>
+
+    <footer>
+      <p>
+        🍃 <a href="./index.html">奈奈 · Nanai</a> ·
+        Fork 自 <a href="https://github.com/xiaoyuanda666-ship-it/BaiLongma" target="_blank">白龙马</a> ·
+        <a href="https://okbabybo.github.io/nanai/" target="_blank">okbabybo.github.io/nanai</a>
+      </p>
+      <p style="margin-top: 8px;">薄荷绿 + 奶茶色 + 米白 · 清新治愈风格 · 2026</p>
+    </footer>
+  </div>
+</body>
+</html>

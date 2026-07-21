@@ -8,6 +8,11 @@
     name="description"
     content="奈奈（Nanai）是清新治愈的桌面 AI Agent — 住在你的电脑里，记得你说过的每句话，会在合适的时候主动伸手。Fork 自开源项目白龙马。"
   >
+  <link rel="icon" type="image/png" sizes="32x32" href="/site-assets/nanai-favicon-32.png">
+  <link rel="icon" type="image/png" sizes="64x64" href="/site-assets/nanai-favicon-64.png">
+  <link rel="icon" type="image/png" sizes="128x128" href="/site-assets/nanai-favicon-128.png">
+  <link rel="icon" type="image/png" sizes="256x256" href="/site-assets/nanai-favicon-256.png">
+  <link rel="shortcut icon" href="/site-assets/nanai-favicon.ico">
   <link rel="icon" type="image/png" href="/site-assets/icon.png">
   <style>
     :root {
@@ -618,22 +623,227 @@
         transform: none;
       }
     }
+
+    /* === Hero Art Section (奈奈主视觉) === */
+    .hero-art {
+      padding: 80px 0;
+    }
+    .hero-art-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 64px;
+      align-items: center;
+    }
+    .hero-art-text h2 {
+      font-family: var(--font-display, serif);
+      font-size: clamp(28px, 3.4vw, 42px);
+      line-height: 1.25;
+      margin: 8px 0 20px;
+      color: var(--ink, #2d3d34);
+      font-weight: 600;
+    }
+    .hero-art-text h2::after {
+      content: "";
+      display: block;
+      width: 56px;
+      height: 3px;
+      background: var(--gold, #d4a574);
+      margin-top: 16px;
+      border-radius: 2px;
+    }
+    .hero-art-lede {
+      font-size: 16px;
+      line-height: 1.75;
+      color: var(--soft-ink, #405060);
+      margin: 0 0 24px;
+    }
+    .hero-art-lede strong {
+      color: var(--ink, #2d3d34);
+    }
+    .hero-art-points {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 12px;
+    }
+    .hero-art-points li {
+      padding: 12px 16px;
+      background: var(--surface, rgba(255,255,250,0.6));
+      border-left: 3px solid var(--green, #19806b);
+      border-radius: 4px;
+      font-size: 15px;
+      color: var(--soft-ink, #405060);
+    }
+    .hero-art-points strong {
+      color: var(--ink, #2d3d34);
+    }
+    .hero-art-image {
+      position: relative;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 24px 60px rgba(18, 35, 54, 0.18);
+      background: linear-gradient(135deg, #e8f5e9 0%, #d4e9d8 100%);
+    }
+    .hero-art-image img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .hero-art-caption {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 14px 18px;
+      background: linear-gradient(to top, rgba(45, 61, 52, 0.85), transparent);
+      color: #f5f1ea;
+      font-size: 13px;
+      letter-spacing: 0.05em;
+    }
+    @media (max-width: 768px) {
+      .hero-art-grid {
+        grid-template-columns: 1fr;
+        gap: 32px;
+      }
+    }
+
+    /* === Fork Section === */
+    .fork-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      margin-top: 36px;
+    }
+    .fork-card {
+      padding: 28px;
+      background: var(--surface, rgba(255,255,250,0.78));
+      border: 1px solid var(--line, rgba(16,23,34,0.12));
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(18, 35, 54, 0.08);
+    }
+    .fork-card-self {
+      background: linear-gradient(135deg, #e8f5e9 0%, #f5f1ea 100%);
+      border-color: var(--green, #19806b);
+    }
+    .fork-card-tag {
+      display: inline-block;
+      padding: 4px 12px;
+      font-size: 12px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: var(--deep, #162a45);
+      color: #fbfaf6;
+      border-radius: 4px;
+      margin-bottom: 14px;
+    }
+    .fork-card-self .fork-card-tag {
+      background: var(--green, #19806b);
+    }
+    .fork-card h3 {
+      font-family: var(--font-display, serif);
+      font-size: 24px;
+      margin: 0 0 8px;
+      color: var(--ink, #2d3d34);
+    }
+    .fork-card-source a {
+      color: var(--green, #19806b);
+      text-decoration: none;
+      font-size: 14px;
+      word-break: break-all;
+    }
+    .fork-card-source a:hover {
+      text-decoration: underline;
+    }
+    .fork-card ul {
+      list-style: none;
+      padding: 0;
+      margin: 16px 0;
+      display: grid;
+      gap: 6px;
+    }
+    .fork-card li {
+      font-size: 14px;
+      color: var(--soft-ink, #405060);
+      padding-left: 18px;
+      position: relative;
+    }
+    .fork-card li::before {
+      content: "·";
+      position: absolute;
+      left: 6px;
+      color: var(--green, #19806b);
+      font-weight: bold;
+    }
+    .fork-card-thanks {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--line, rgba(16,23,34,0.18));
+      font-size: 13px;
+      color: var(--muted, #72808d);
+      text-align: center;
+    }
+    @media (max-width: 768px) {
+      .fork-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* === Assets CTA === */
+    .assets-cta-card {
+      padding: 40px 48px;
+      background: linear-gradient(135deg, #e8f5e9 0%, #f5f1ea 100%);
+      border: 1px solid var(--line, rgba(16,23,34,0.12));
+      border-radius: 16px;
+      display: flex; justify-content: space-between; align-items: center; gap: 32px;
+      box-shadow: 0 12px 32px rgba(18, 35, 54, 0.08);
+    }
+    .assets-cta-card .kicker {
+      color: var(--green, #19806b);
+      font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase;
+      margin: 0 0 8px;
+    }
+    .assets-cta-card h2 {
+      font-family: var(--font-display, serif);
+      font-size: 26px; margin: 0 0 8px; color: var(--ink);
+    }
+    .assets-cta-card p { color: var(--soft-ink); margin: 0; }
+    .assets-cta-btn {
+      padding: 14px 28px;
+      background: var(--green, #19806b);
+      color: white;
+      border-radius: 999px;
+      text-decoration: none;
+      font-weight: 500;
+      font-size: 15px;
+      transition: all 0.2s;
+      white-space: nowrap;
+    }
+    .assets-cta-btn:hover {
+      background: var(--ink);
+      transform: translateX(2px);
+    }
+    @media (max-width: 720px) {
+      .assets-cta-card { flex-direction: column; align-items: flex-start; padding: 32px; }
+    }
   </style>
 </head>
 <body>
   <header class="nav">
     <div class="nav-inner">
       <a class="brand" href="#top" aria-label="奈奈">
-        <img src="/site-assets/icon.png" alt="">
+        <img src="/site-assets/nanai-favicon-128.png" alt="奈奈 logo">
         <span class="brand-text">
           <span class="brand-name">奈奈</span>
-          <span class="brand-sub">数字意识实验程序</span>
+          <span class="brand-sub">住在桌面里的数字伙伴</span>
         </span>
       </a>
       <nav class="nav-links" aria-label="页面导航">
         <a href="#idea">想法</a>
-        <a href="#axis">实验维度</a>
-        <a href="#flow">意识流</a>
+        <a href="#hero-art">遇见奈奈</a>
+        <a href="#axis">能力</a>
+        <a href="#flow">运行流</a>
+        <a href="#fork">上下游</a><a href="./assets.html">品牌资产</a>
         <a href="#future">继续生长</a>
       </nav>
     </div>
@@ -656,7 +866,34 @@
           </div>
         </div>
       </div>
-      <div class="peek">向下看见它的内部结构</div>
+      <div class="peek">向下看见她的样子</div>
+    </section>
+
+
+    <section class="section hero-art" id="hero-art">
+      <div class="container">
+        <div class="hero-art-grid reveal">
+          <div class="hero-art-text">
+            <p class="kicker">遇见奈奈</p>
+            <h2>她住在你的桌面里，记得你说过的每句话。</h2>
+            <p class="hero-art-lede">
+              奈奈不是一个聊天窗口，而是一个<strong>持续存在的数字伙伴</strong>。
+              她的外壳是薄荷绿与奶茶色，柔软的配色让人一眼就放下戒备；
+              她的内核来自白龙马项目的完整工程架构——SQLite 长期记忆、按需工具调用、Brain UI 可视化、Electron 桌面集成，一个都不少。
+            </p>
+            <ul class="hero-art-points">
+              <li><strong>会感知</strong> · 持续运行主循环，不是一次问答结束就退出</li>
+              <li><strong>会记住</strong> · 本地 SQLite 持久化对话、记忆、行动日志</li>
+              <li><strong>会行动</strong> · 工具系统调用文件、Shell、网页、媒体、提醒</li>
+              <li><strong>会观察</strong> · Brain UI 实时显示思考流、记忆图、任务状态</li>
+            </ul>
+          </div>
+          <div class="hero-art-image">
+            <img src="/site-assets/nanai-hero-large.png" alt="奈奈 · 薄荷绿长发与闭眼微笑" loading="lazy">
+            <div class="hero-art-caption">薄荷绿长发 · 闭眼微笑 · 头顶小红花</div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section class="section" id="idea">
@@ -776,7 +1013,7 @@
     <section class="section closing" id="future">
       <div class="container">
         <div class="closing-panel reveal">
-          <img src="/site-assets/icon.png" alt="">
+          <img src="/site-assets/nanai-favicon-128.png" alt="奈奈 logo">
           <h2>这不是一个完成品，而是一种正在长成的智能体生命形态。</h2>
           <p>
             奈奈 会继续沿着数字意识、长期记忆、主动行动和本地共生的方向生长。它的意义不只在于已经能做什么，也在于它让“一个 AI 如何持续存在”这件事变得可以被实验。
@@ -786,6 +1023,19 @@
     </section>
   </main>
 
+
+    <section class="section assets-cta" id="assets">
+      <div class="container">
+        <div class="assets-cta-card reveal">
+          <div>
+            <p class="kicker">Brand Assets</p>
+            <h2>想用奈奈做你的数字伙伴？</h2>
+            <p>全套 Logo、App Icon、Favicon、品牌色板，一站式下载。</p>
+          </div>
+          <a href="./assets.html" class="assets-cta-btn">查看品牌资源包 →</a>
+        </div>
+      </div>
+    </section>
   <footer class="footer">
     <div class="container footer-inner">
       <span>奈奈 · 数字意识实验程序</span>
