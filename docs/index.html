@@ -862,6 +862,25 @@
     @media (max-width: 720px) {
       .assets-cta-card { flex-direction: column; align-items: flex-start; padding: 32px; }
     }
+
+    /* === OSS 开源徽章 === */
+    .oss-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      background: rgba(127, 184, 158, 0.12);
+      border: 1px solid rgba(127, 184, 158, 0.35);
+      border-radius: 999px;
+      font-size: 13px;
+      color: var(--mint-deep, #5a9b80);
+      margin: 12px auto;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+    }
+    .oss-badge-icon {
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
@@ -892,6 +911,10 @@
         <div class="hero-inner">
           <img class="hero-icon reveal" src="/nanai/site-assets/nanai-hero-circle-256.png" alt="奈奈 图标">
           <div class="eyebrow reveal delay-1">continuous consciousness experiment</div>
+          <div class="oss-badge reveal delay-1">
+            <span class="oss-badge-icon">🍃</span>
+            <span class="oss-badge-text">完全开源 · 永久免费 · 无需激活码</span>
+          </div>
           <h1 class="reveal delay-1">奈奈</h1>
           <p class="subtitle reveal delay-2">住在桌面里的数字伙伴 · 清新治愈风格</p>
           <p class="hero-copy reveal delay-3">
