@@ -1,4 +1,4 @@
-<img src="docs/site-assets/nanai-wordmark.png" alt="奈奈 · Nanai" width="540">
+<img src="https://okbabybo.github.io/nanai/site-assets/nanai-wordmark.png" alt="奈奈 · Nanai" width="540">
 
 # 奈奈 · Nanai
 
