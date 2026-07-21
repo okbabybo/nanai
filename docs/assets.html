@@ -208,6 +208,23 @@
       .palette { grid-template-columns: 1fr; }
       .logo-showcase { grid-template-columns: 1fr; padding: 32px; }
     }
+
+    /* === Wordmark === */
+    .wordmark-card {
+      padding: 32px;
+      background: var(--paper);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+    }
+    .wordmark-card img {
+      max-width: 540px;
+      width: 100%;
+      height: auto;
+    }
   </style>
 </head>
 <body>
@@ -246,8 +263,36 @@
           🎨 主色：樱花粉 + 奶油白 + 蓝色眼眸<br>
           💾 格式：JPG / PNG · 80~700 KB
         </div>
+        <div style="margin-top: 16px;">
+          <a href="/site-assets/nanai-hero-large.png" download class="asset-dl">下载主视觉 PNG</a>
+          <a href="/site-assets/nanai-original.jpg" download class="asset-dl" style="background: var(--tea-deep);">下载原图 JPG</a>
+        </div>
       </div>
     </div>
+
+    <!-- Wordmark showcase -->
+    <section class="asset-block">
+      <h2>🏷️ 品牌文字锁 · Wordmark <span class="badge">Logo + 文字</span></h2>
+      <p class="desc">奈奈 logo + 中文品牌名 + 一句话副标题的横向组合。适合 README 头部、社交媒体横幅、PPT 封面。</p>
+      <div class="wordmark-card">
+        <img src="/site-assets/nanai-wordmark.png" alt="奈奈 · Nanai wordmark">
+        <a href="/site-assets/nanai-wordmark.png" download class="asset-dl">下载 Wordmark</a>
+      </div>
+    </section>
+
+    <!-- Hero Circle Icon -->
+    <section class="asset-block">
+      <h2>🎯 Hero 圆形图标 <span class="badge">首屏专用</span></h2>
+      <p class="desc">256×256 圆形版，hero 区小图标专用。比 favicon 更精致，比 hero-large 更小巧。</p>
+      <div class="asset-grid">
+        <div class="asset-card">
+          <div class="asset-preview"><img src="/site-assets/nanai-hero-circle-256.png" alt=""></div>
+          <div class="asset-name">nanai-hero-circle-256.png</div>
+          <div class="asset-meta">256 × 256 · 圆形 · 首屏</div>
+          <a href="/site-assets/nanai-hero-circle-256.png" download class="asset-dl">下载</a>
+        </div>
+      </div>
+    </section>
 
     <!-- Color palette -->
     <h2 style="font-size: 22px; margin-bottom: 8px;">🎨 品牌色板</h2>

@@ -1,10 +1,11 @@
-![奈奈 Nanai](https://github.com/okbabybo/nanai/blob/main/images/AGI128k.jpg)
+<img src="docs/site-assets/nanai-wordmark.png" alt="奈奈 · Nanai" width="540">
 
 # 奈奈 · Nanai
 
 奈奈（Nanai）是一个持续运行的桌面 AI Agent 项目，定位为**清新治愈风格的个人数字伙伴**。它不是一次问答结束就退出的聊天程序，而是由主循环驱动：有用户消息时优先处理，空闲时按节奏继续整理记忆、检查任务、刷新上下文，并把状态实时推送到 Brain UI。
 
 > 🍃 **品牌色**：薄荷绿 `#7FB89E` · 奶茶色 `#D4A574` · 米白 `#F5F1EA`
+> 👧 **主视觉**：粉色长发 · 蓝色眼眸 · 闭眼微笑 · 治愈系
 > 🎯 **面向用户**：C 端用户、个人创作者、桌面工作者
 > 🏛 **架构来源**：Fork 自开源项目 [白龙马](https://github.com/xiaoyuanda666-ship-it/BaiLongma)（保留其完整架构、工具系统、记忆引擎、Brain UI 与 Electron 集成）
 
@@ -27,6 +28,22 @@
 | 目标用户 | 开发者 / 高级用户 | C 端普通用户 |
 
 **升级白龙马**：建议先向上游合并，再品牌层覆盖。
+
+## 品牌资产
+
+| 资源 | 规格 | 用途 |
+|------|------|------|
+| `site-assets/nanai-original.jpg` | 1080×1080 | 主视觉原图 |
+| `site-assets/nanai-hero-large.png` | 1080×1080 | Hero 区域大图 |
+| `site-assets/nanai-hero-circle-256.png` | 256×256 | 圆形 Hero 图标 |
+| `site-assets/nanai-wordmark.png` | 720×200 | Logo + 文字锁组合 |
+| `site-assets/nanai-appicon-{512,256,128,64}.png` | 多尺寸 | 桌面应用图标 |
+| `site-assets/nanai-favicon-{256,128,64,32}.png` | 多尺寸 | 浏览器标签图标 |
+| `site-assets/nanai-favicon.ico` | 16-64 | 浏览器传统 ICO |
+| `site-assets/nanai-apple-touch-{180,152,120}.png` | 多尺寸 | iOS 主屏幕图标 |
+| `site-assets/nanai-og-cover.png` | 1200×630 | 社交分享卡片封面 |
+
+完整资源包与下载：<https://okbabybo.github.io/nanai/assets.html>
 
 ## 主要能力
 

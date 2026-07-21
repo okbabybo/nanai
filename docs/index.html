@@ -705,15 +705,23 @@
     }
     .hero-art-image {
       position: relative;
-      border-radius: 16px;
+      border-radius: 24px;
       overflow: hidden;
-      box-shadow: 0 24px 60px rgba(18, 35, 54, 0.18);
+      box-shadow: 0 28px 70px rgba(18, 35, 54, 0.22),
+                  0 0 0 8px rgba(127, 184, 158, 0.10),
+                  0 0 0 16px rgba(127, 184, 158, 0.05);
       background: linear-gradient(135deg, #e8f5e9 0%, #d4e9d8 100%);
+      aspect-ratio: 1;
     }
     .hero-art-image img {
       display: block;
       width: 100%;
-      height: auto;
+      height: 100%;
+      object-fit: cover;
+      transition: transform 0.6s ease;
+    }
+    .hero-art-image:hover img {
+      transform: scale(1.03);
     }
     .hero-art-caption {
       position: absolute;
@@ -879,7 +887,7 @@
       <canvas class="field-canvas" aria-hidden="true"></canvas>
       <div class="container">
         <div class="hero-inner">
-          <img class="hero-icon reveal" src="/site-assets/nanai-favicon-128.png" alt="奈奈 图标">
+          <img class="hero-icon reveal" src="/site-assets/nanai-hero-circle-256.png" alt="奈奈 图标">
           <div class="eyebrow reveal delay-1">continuous consciousness experiment</div>
           <h1 class="reveal delay-1">奈奈</h1>
           <p class="subtitle reveal delay-2">住在桌面里的数字伙伴 · 清新治愈风格</p>
