@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🥷 混沌武士量化 · Warrior Quant</title>
+<meta name="description" content="AI驱动的加密货币量化交易公司 — bot20x趋势 + bot-king现货 + hedge-bot对冲 三机器人协同">
+<style>
+:root {
+    --gold: #C8A45C;
+    --red: #B91C1C;
+    --black: #1A1A1A;
+    --ash: #2A2A2A;
+    --text: #E5E5E5;
+    --text-dim: #999;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--black);
+    color: var(--text);
+    line-height: 1.6;
+    min-height: 100vh;
+    background-image: radial-gradient(circle at top right, rgba(200,164,92,0.08), transparent 50%),
+                      radial-gradient(circle at bottom left, rgba(185,28,28,0.06), transparent 50%);
+}
+.wrap { max-width: 1100px; margin: 0 auto; padding: 40px 20px; }
+
+/* Header */
+header {
+    text-align: center;
+    padding: 60px 20px 40px;
+    border-bottom: 1px solid rgba(200,164,92,0.2);
+    margin-bottom: 40px;
+}
+.logo { font-size: 64px; margin-bottom: 16px; filter: drop-shadow(0 0 20px rgba(200,164,92,0.3)); display: flex; justify-content: center; }
+.logo svg { display: block; }
+h1 {
+    font-size: 42px;
+    background: linear-gradient(135deg, var(--gold), #E8C97A);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 12px;
+    letter-spacing: 2px;
+}
+.subtitle {
+    font-size: 16px;
+    color: var(--text-dim);
+    letter-spacing: 1px;
+}
+.brand-colors {
+    display: flex;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 24px;
+}
+.swatch {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.1);
+    box-shadow: 0 0 12px rgba(0,0,0,0.5);
+}
+.swatch.gold { background: var(--gold); }
+.swatch.red { background: var(--red); }
+.swatch.black { background: var(--black); }
+
+/* Section */
+section { margin-bottom: 48px; }
+h2 {
+    font-size: 24px;
+    color: var(--gold);
+    margin-bottom: 24px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid rgba(200,164,92,0.3);
+    display: inline-block;
+}
+
+/* Cards */
+.cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+}
+.card {
+    background: var(--ash);
+    border: 1px solid rgba(200,164,92,0.2);
+    border-radius: 8px;
+    padding: 24px;
+    transition: all 0.3s;
+}
+.card:hover {
+    border-color: var(--gold);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(200,164,92,0.15);
+}
+.card-title {
+    color: var(--gold);
+    font-size: 18px;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.card-status {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    margin-left: auto;
+}
+.status-online { background: rgba(34,197,94,0.2); color: #22C55E; }
+.status-pending { background: rgba(234,179,8,0.2); color: #EAB308; }
+.card-desc { color: var(--text-dim); font-size: 14px; }
+
+/* Pricing Table */
+.pricing {
+    overflow-x: auto;
+    border-radius: 8px;
+    border: 1px solid rgba(200,164,92,0.2);
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+}
+th, td {
+    padding: 12px 16px;
+    text-align: left;
+    border-bottom: 1px solid rgba(200,164,92,0.1);
+}
+th {
+    background: rgba(200,164,92,0.1);
+    color: var(--gold);
+    font-weight: 600;
+}
+tr:hover { background: rgba(200,164,92,0.05); }
+.featured {
+    background: linear-gradient(90deg, rgba(200,164,92,0.15), transparent);
+    font-weight: 600;
+}
+
+/* Payment */
+.payment {
+    background: linear-gradient(135deg, var(--ash), rgba(185,28,28,0.1));
+    border: 2px solid var(--gold);
+    border-radius: 12px;
+    padding: 32px;
+    text-align: center;
+}
+.payment h3 { color: var(--gold); margin-bottom: 20px; font-size: 20px; }
+.address-box {
+    background: var(--black);
+    border: 1px solid rgba(200,164,92,0.4);
+    padding: 16px;
+    border-radius: 8px;
+    font-family: "Menlo", "Monaco", monospace;
+    font-size: 14px;
+    word-break: break-all;
+    margin: 16px 0;
+    color: var(--gold);
+}
+.network-tag {
+    display: inline-block;
+    padding: 4px 12px;
+    background: var(--red);
+    color: white;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 8px;
+}
+
+/* Risk */
+.risk {
+    background: rgba(185,28,28,0.1);
+    border-left: 4px solid var(--red);
+    padding: 20px 24px;
+    border-radius: 4px;
+    font-size: 14px;
+}
+.risk strong { color: var(--red); }
+
+/* Footer */
+footer {
+    text-align: center;
+    padding: 40px 20px;
+    border-top: 1px solid rgba(200,164,92,0.2);
+    margin-top: 60px;
+    color: var(--text-dim);
+    font-size: 14px;
+}
+.contact a {
+    color: var(--gold);
+    text-decoration: none;
+    margin: 0 8px;
+}
+.contact a:hover { text-decoration: underline; }
+
+/* Live Status */
+.live-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-top: 20px;
+}
+.live-card {
+    background: var(--ash);
+    padding: 16px;
+    border-radius: 8px;
+    text-align: center;
+    border: 1px solid rgba(200,164,92,0.2);
+}
+.live-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+.live-value { font-size: 28px; color: var(--gold); margin: 8px 0; font-weight: 700; }
+.live-meta { font-size: 11px; color: var(--text-dim); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+    <div class="logo">
+        <svg width="80" height="80" viewBox="0 0 80 80" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#C8A45C"/>
+                    <stop offset="100%" style="stop-color:#E8C97A"/>
+                </linearGradient>
+            </defs>
+            <rect x="14" y="14" width="52" height="52" rx="6" fill="none" stroke="url(#goldGrad)" stroke-width="2.5"/>
+            <path d="M 22 40 L 34 52 L 58 28" fill="none" stroke="url(#goldGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="40" cy="40" r="38" fill="none" stroke="#B91C1C" stroke-width="1" stroke-opacity="0.4"/>
+        </svg>
+    </div>
+    <h1>混沌武士量化</h1>
+    <p class="subtitle">Warrior Quant · AI驱动的加密货币量化交易</p>
+    <div class="brand-colors">
+        <div class="swatch gold" title="暗金 #C8A45C"></div>
+        <div class="swatch red" title="赤红 #B91C1C"></div>
+        <div class="swatch black" title="武士黑 #1A1A1A"></div>
+    </div>
+</header>
+
+<!-- 公司定位 -->
+<section>
+    <h2>🎯 公司定位</h2>
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">🏢 主营业务</div>
+            <p class="card-desc">AI驱动的加密货币永续合约 + 现货自动化交易，基于白龙马智能体架构定制改造</p>
+        </div>
+        <div class="card">
+            <div class="card-title">🤖 核心引擎</div>
+            <p class="card-desc">bot20x趋势 + bot-king现货网格 + hedge-bot对冲三机器人协同作战</p>
+        </div>
+        <div class="card">
+            <div class="card-title">🎨 品牌色</div>
+            <p class="card-desc">暗金 #C8A45C · 赤红 #B91C1C · 武士黑 #1A1A1A — 东亚武学美学的战场感</p>
+        </div>
+    </div>
+</section>
+
+<!-- 三机器人状态 -->
+<section>
+    <h2>🤖 机器人矩阵 <span style="font-size:14px;color:var(--text-dim)">（实时）</span></h2>
+    <div class="cards">
+        <div class="card">
+            <div class="card-title">⚡ bot20x <span class="card-status status-online">● 在线</span></div>
+            <p class="card-desc"><strong>BTC + ETH 永续合约</strong><br>20x杠杆 · ATR动态止损<br>趋势跟随 + 资金管理</p>
+        </div>
+        <div class="card">
+            <div class="card-title">💎 bot-king <span class="card-status status-online">● 在线</span></div>
+            <p class="card-desc"><strong>8币种现货网格+趋势</strong><br>BTC/ETH/BNB/SOL/AVAX/XRP/SUI/TON<br>1x杠杆 · API熔断机制</p>
+        </div>
+        <div class="card">
+            <div class="card-title">🛡 hedge-bot <span class="card-status status-pending">⏸ 待激活</span></div>
+            <p class="card-desc"><strong>ETH 同币种对冲</strong><br>v1.4 "有利才平"哲学<br>反固定强平 · 三维收窄</p>
+        </div>
+    </div>
+</section>
+
+<!-- 实时数据展示 -->
+<section>
+    <h2>📊 实时数据</h2>
+    <div class="live-grid">
+        <div class="live-card">
+            <div class="live-label">在线机器人</div>
+            <div class="live-value">2 / 3</div>
+            <div class="live-meta">bot20x · bot-king</div>
+        </div>
+        <div class="live-card">
+            <div class="live-label">PM2 运行稳定性</div>
+            <div class="live-value">100%</div>
+            <div class="live-meta">48h无重启</div>
+        </div>
+        <div class="live-card">
+            <div class="live-label">策略迭代</div>
+            <div class="live-value">v6.0</div>
+            <div class="live-meta">bot20x 最新</div>
+        </div>
+        <div class="live-card">
+            <div class="live-label">服务可用</div>
+            <div class="live-value">24/7</div>
+            <div class="live-meta">自动重启</div>
+        </div>
+    </div>
+</section>
+
+<!-- 订阅矩阵 -->
+<section>
+    <h2>💰 订阅矩阵</h2>
+    <div class="pricing">
+        <table>
+            <thead>
+                <tr>
+                    <th>档位</th>
+                    <th>月费 USDT</th>
+                    <th>年费 USDT</th>
+                    <th>权限</th>
+                    <th>适用</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>S0 体验官</td><td>免费</td><td>免费</td><td>观察账本</td><td>路过新手</td></tr>
+                <tr><td>S1 学徒</td><td>9</td><td>90</td><td>跟单50%</td><td>0基础小白</td></tr>
+                <tr class="featured"><td>S2 学士</td><td>29</td><td>290</td><td>bot-king满权限</td><td>兼职小资金</td></tr>
+                <tr><td>S3 骑士</td><td>89</td><td>890</td><td>+ bot20x</td><td>主业交易员</td></tr>
+                <tr><td>S4 将军</td><td>199</td><td>1990</td><td>+ hedge-bot</td><td>多策略</td></tr>
+                <tr><td>S5 都统</td><td>499</td><td>4990</td><td>+ VIP信号</td><td>中大户</td></tr>
+                <tr><td>S6 节度使</td><td>999</td><td>9990</td><td>+ 1v1咨询</td><td>专业交易员</td></tr>
+                <tr><td>S7 大帅</td><td>2999</td><td>29990</td><td>+ 定制开发</td><td>量化团队</td></tr>
+                <tr><td>S8 王爵</td><td>9999</td><td>99990</td><td>+ 联合白标</td><td>机构合作</td></tr>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<!-- 收款 -->
+<section>
+    <div class="payment">
+        <h3>💸 收款信息</h3>
+        <p style="margin-bottom:16px;">网络：<span class="network-tag">BSC (BEP-20) · chainid=56</span></p>
+        <div class="address-box">0x352f5Cb1CA167500D27741676ab9efA4B07D3D30</div>
+        <p style="color:var(--text-dim);font-size:14px;">
+            ⚠️ <strong style="color:var(--red)">切勿发送 TRC20 / ERC20 / 其他链</strong> —— 资产不可找回<br>
+            转账金额请精确匹配档位费用
+        </p>
+    </div>
+</section>
+
+<!-- 风险提示 -->
+<section>
+    <h2>⚖️ 风险告知</h2>
+    <div class="risk">
+        <p><strong>重要提示：</strong>本服务由AI自动执行交易，<strong style="color:var(--red)">不保证任何收益</strong>。加密货币市场剧烈波动可能导致全部本金亏损，杠杆交易最高放大20倍。</p>
+        <p style="margin-top:12px;">完整风险告知见 <a href="docs/legal/RISK_DISCLOSURE.md" style="color:var(--gold)">RISK_DISCLOSURE.md</a>。付款即视为已阅读、理解并接受全部条款。</p>
+    </div>
+</section>
+
+<!-- 联系方式 -->
+<footer>
+    <p class="contact">
+        <a href="https://github.com/okbabybo/chaos-warrior">GitHub</a> ·
+        <a href="#">Telegram @okbabybo</a> ·
+        <a href="#">飞书 用户761220</a>
+    </p>
+    <p style="margin-top:16px;">© 2026 混沌武士量化 · Warrior Quant · 基于 <a href="https://github.com/xiaoyuanda666-ship-it/BaiLongma" style="color:var(--gold)">BaiLongma</a> 修改</p>
+    <p style="margin-top:8px;font-size:12px;">v1.0.0 · 2026-07-22 首发</p>
+</footer>
+
+</div>
+</body>
+</html>
