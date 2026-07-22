@@ -352,6 +352,17 @@ footer a {
     transition: color 0.2s;
 }
 footer a:hover { color: var(--gold); }
+
+.cta-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-top:60px; }
+.cta-card { background:#0A0A0A; border:1px solid rgba(200,164,92,0.2); padding:32px 24px; text-decoration:none; color:var(--text); position:relative; transition:all 0.2s; }
+.cta-card:hover { border-color:var(--gold); transform:translateY(-4px); }
+.cta-card.featured { border-color:var(--gold); background:linear-gradient(180deg,#0A0A0A,#000); border-top:3px solid var(--gold); }
+.cta-card-num { color:var(--gold); font-size:48px; font-weight:900; line-height:1; opacity:0.5; margin-bottom:16px; }
+.cta-card-title { color:var(--text); font-size:20px; font-weight:600; margin-bottom:8px; }
+.cta-card-desc { color:var(--dim); font-size:13px; line-height:1.5; }
+.cta-card-arrow { position:absolute; bottom:24px; right:24px; color:var(--gold); font-size:24px; opacity:0; transition:opacity 0.2s; }
+.cta-card:hover .cta-card-arrow { opacity:1; }
+
 </style>
 </head>
 <body>
@@ -498,6 +509,34 @@ footer a:hover { color: var(--gold); }
                 发送任意金额USDT到此地址即可<br>
                 AI在3个区块内自动识别并启动你的策略档位
             </p>
+        </div>
+    </div>
+</section>
+
+
+<section>
+    <div class="wrap">
+        <p class="section-label">// 05</p>
+        <h2>参与路径</h2>
+        <div class="cta-grid">
+            <a href="start.html" class="cta-card">
+                <div class="cta-card-num">01</div>
+                <div class="cta-card-title">5步参与手册</div>
+                <div class="cta-card-desc">从 Telegram 到 AI 自动跑策略的完整流程</div>
+                <div class="cta-card-arrow">→</div>
+            </a>
+            <a href="telegram.html" class="cta-card">
+                <div class="cta-card-num">02</div>
+                <div class="cta-card-title">Telegram 指令</div>
+                <div class="cta-card-desc">/start /deposit /status /withdraw 完整指令集</div>
+                <div class="cta-card-arrow">→</div>
+            </a>
+            <a href="https://t.me/okbabybo" class="cta-card featured">
+                <div class="cta-card-num">03</div>
+                <div class="cta-card-title">直接 @okbabybo</div>
+                <div class="cta-card-desc">跳过手册，直接发 /start 让 AI 引导你</div>
+                <div class="cta-card-arrow">→</div>
+            </a>
         </div>
     </div>
 </section>
